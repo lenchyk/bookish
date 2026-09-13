@@ -16,13 +16,8 @@ struct Genre: Codable, Identifiable, Equatable, Hashable {
     self.name = name
   }
 
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(Int.self, forKey: .id)
-    name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-  }
-
   init(cache: GenreCache) {
-    self.init(id: cache.id, name: cache.name)
+    id = cache.id
+    name = cache.name
   }
 }

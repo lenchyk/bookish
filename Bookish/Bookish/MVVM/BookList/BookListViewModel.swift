@@ -19,14 +19,10 @@ final class BooksListViewModel {
       searchDebouncer.send(searchText)
     }
   }
-  var errorMessage: String?
   var books: [Book] = []
-  var isLoading = false
-  private(set) var hasCompletedInitialLoad = false
+  var loadingState: LoadingState = .idle
 
-  private var currentPage = 1
-  private var hasMore = true
-  private var isPaging = false
+  private var nextPage: Int?
   private let searchDebouncer = SearchDebouncer()
 
   init(service: BooksApplicationService) {
@@ -36,51 +32,28 @@ final class BooksListViewModel {
     }
   }
 
-  func loadInitialIfNeeded() async {
-    guard !hasCompletedInitialLoad else { return }
-    await loadBooks()
+  func loadBooks() async {
+    await fetchPage(1, reset: true)
   }
 
-  func loadBooks() async {
-    currentPage = 1
-    hasMore = true
-    books.removeAll()
-    await loadNextPage()
-    hasCompletedInitialLoad = true
+  func replaceBook(_ book: Book) {
+    guard let index = books.firstIndex(where: { $0.id == book.id }) else { return }
+    books[index] = book
   }
 
   func loadMoreIfNeeded(currentIndex: Int) {
     guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    guard nextPage != nil else { return }
     let threshold = max(books.count - 3, 0)
     guard currentIndex >= threshold else { return }
     Task { await loadNextPage() }
   }
 
   func loadNextPage() async {
-    guard !isPaging else { return }
-    guard hasMore else { return }
+    guard loadingState != .loading else { return }
+    guard let page = nextPage else { return }
     guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-    isPaging = true
-    isLoading = books.isEmpty
-    defer {
-      isPaging = false
-      isLoading = false
-    }
-
-    do {
-      let response = try await service.getBooks(page: currentPage)
-      let existingIds = Set(books.map(\.id))
-      let newBooks = response.data.filter { !existingIds.contains($0.id) }
-      books.append(contentsOf: newBooks)
-      currentPage += 1
-      hasMore = response.hasMore
-      errorMessage = nil
-    } catch is CancellationError {
-      return
-    } catch {
-      errorMessage = error.localizedDescription
-    }
+    await fetchPage(page, reset: false)
   }
 
   func search(with text: String) async {
@@ -91,41 +64,57 @@ final class BooksListViewModel {
       return
     }
 
-    isLoading = true
-    defer { isLoading = false }
+    nextPage = nil
+    loadingState = .loading
 
     do {
       let results = try await service.search(query: query)
       guard !Task.isCancelled else { return }
       guard searchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
-      errorMessage = nil
       books = results
-      hasMore = false
+      loadingState = .loaded
     } catch is CancellationError {
       return
     } catch {
       guard !Task.isCancelled else { return }
-      errorMessage = error.localizedDescription
+      loadingState = .failed(error.localizedDescription)
+    }
+  }
+
+  private func fetchPage(_ page: Int, reset: Bool) async {
+    loadingState = .loading
+
+    do {
+      let response = try await service.getBooks(page: page)
+      if reset {
+        books = response.data
+      } else {
+        let existingIds = Set(books.map(\.id))
+        books.append(contentsOf: response.data.filter { !existingIds.contains($0.id) })
+      }
+      nextPage = response.hasMore ? page + 1 : nil
+      loadingState = .loaded
+    } catch is CancellationError {
+      loadingState = books.isEmpty ? .idle : .loaded
+    } catch {
+      loadingState = books.isEmpty
+        ? .failed(error.localizedDescription)
+        : .loaded
     }
   }
 
   func deleteBook(id: Int) async {
     do {
       try await service.deleteBook(id: id)
-      removeBook(id: id)
+      books.removeAll { $0.id == id }
+      loadingState = .loaded
     } catch {
-      errorMessage = error.localizedDescription
+      loadingState = .failed(error.localizedDescription)
     }
   }
 
   func removeBook(id: Int) {
     books.removeAll { $0.id == id }
-  }
-
-  func replaceBook(_ book: Book) {
-    if let index = books.firstIndex(where: { $0.id == book.id }) {
-      books[index] = book
-    }
   }
 }
 

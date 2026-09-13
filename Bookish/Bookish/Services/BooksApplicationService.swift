@@ -123,11 +123,11 @@ final class BooksApplicationService {
     }
   }
 
-  func getOrders() async throws -> [Order] {
+  func getOrders(page: Int = 1) async throws -> [Order] {
     do {
-      let orders = try await apiClient.getOrders()
-      try await cache.upsertOrders(orders)
-      return orders
+      let response = try await apiClient.getOrders(page: page, limit: BookishPaging.pageSize)
+      try await cache.upsertOrders(response.data)
+      return response.data
     } catch is CancellationError {
       throw CancellationError()
     } catch {

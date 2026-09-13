@@ -4,6 +4,9 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
 function loadEnv() {
   const envPath = path.join(__dirname, '.env');
   let contents;
@@ -60,6 +63,17 @@ function groupBy(rows, key) {
     }, {});
 }
 
+function parsePagination(query, { defaultLimit = DEFAULT_PAGE_SIZE, maxLimit = MAX_PAGE_SIZE } = {}) {
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const rawLimit = parseInt(query.limit, 10);
+    const limit = Math.min(
+        maxLimit,
+        Math.max(1, Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : defaultLimit)
+    );
+    const offset = (page - 1) * limit;
+    return { page, limit, offset };
+}
+
 function mapPrice(row) {
     return {
         id: row.id,
@@ -75,44 +89,44 @@ function mapPrice(row) {
     };
 }
 
-async function hydrateBooks(books) {
+async function attachBookRelations(books) {
     if (!books.length) {
         return books;
     }
 
     const ids = books.map((book) => book.id);
 
-    const [authorRows] = await db.query(
-        `SELECT ba.book_id, a.id, a.name
-         FROM books_by_authors ba
-         JOIN Authors a ON a.id = ba.author_id
-         WHERE ba.book_id IN (?)`,
-        [ids]
-    );
-
-    const [genreRows] = await db.query(
-        `SELECT bg.book_id, g.id, g.name
-         FROM book_genres bg
-         JOIN Genres g ON g.id = bg.genre_id
-         WHERE bg.book_id IN (?)`,
-        [ids]
-    );
-
-    const [priceRows] = await db.query(
-        `SELECT
-            bp.id,
-            bp.book_id,
-            bp.price,
-            bp.created_at,
-            c.id AS currency_id,
-            c.name AS currency_name,
-            c.symbol AS currency_symbol,
-            c.code AS currency_code
-         FROM book_prices bp
-         JOIN currencies c ON c.id = bp.currency_id
-         WHERE bp.book_id IN (?)`,
-        [ids]
-    );
+    const [[authorRows], [genreRows], [priceRows]] = await Promise.all([
+        db.query(
+            `SELECT ba.book_id, a.id, a.name
+             FROM books_by_authors ba
+             JOIN Authors a ON a.id = ba.author_id
+             WHERE ba.book_id IN (?)`,
+            [ids]
+        ),
+        db.query(
+            `SELECT bg.book_id, g.id, g.name
+             FROM book_genres bg
+             JOIN Genres g ON g.id = bg.genre_id
+             WHERE bg.book_id IN (?)`,
+            [ids]
+        ),
+        db.query(
+            `SELECT
+                bp.id,
+                bp.book_id,
+                bp.price,
+                bp.created_at,
+                c.id AS currency_id,
+                c.name AS currency_name,
+                c.symbol AS currency_symbol,
+                c.code AS currency_code
+             FROM book_prices bp
+             JOIN currencies c ON c.id = bp.currency_id
+             WHERE bp.book_id IN (?)`,
+            [ids]
+        )
+    ]);
 
     const authorsByBook = groupBy(authorRows, 'book_id');
     const genresByBook = groupBy(genreRows, 'book_id');
@@ -126,29 +140,33 @@ async function hydrateBooks(books) {
     }));
 }
 
-async function hydrateCustomers(customers) {
+async function attachCustomerRelations(customers, currenciesById = null) {
     if (!customers.length) {
         return customers;
     }
 
-    const currencyIds = [...new Set(customers.map((customer) => customer.currency_id).filter(Boolean))];
-    let currenciesById = {};
+    let resolvedCurrencies = currenciesById;
 
-    if (currencyIds.length) {
-        const [currencyRows] = await db.query(
-            `SELECT id, name, symbol, code FROM currencies WHERE id IN (?)`,
-            [currencyIds]
-        );
-        currenciesById = Object.fromEntries(currencyRows.map((row) => [row.id, row]));
+    if (!resolvedCurrencies) {
+        const currencyIds = [...new Set(customers.map((customer) => customer.currency_id).filter(Boolean))];
+        resolvedCurrencies = {};
+
+        if (currencyIds.length) {
+            const [currencyRows] = await db.query(
+                `SELECT id, name, symbol, code FROM currencies WHERE id IN (?)`,
+                [currencyIds]
+            );
+            resolvedCurrencies = Object.fromEntries(currencyRows.map((row) => [row.id, row]));
+        }
     }
 
     return customers.map((customer) => ({
         ...customer,
-        currency: currenciesById[customer.currency_id] || null
+        currency: resolvedCurrencies[customer.currency_id] || null
     }));
 }
 
-async function hydrateOrders(orders) {
+async function attachOrderRelations(orders, { includeItems = true } = {}) {
     if (!orders.length) {
         return orders;
     }
@@ -157,59 +175,80 @@ async function hydrateOrders(orders) {
     const customerIds = [...new Set(orders.map((order) => order.customer_id).filter(Boolean))];
     const currencyIds = [...new Set(orders.map((order) => order.currency_id).filter(Boolean))];
 
-    const [customerRows] = customerIds.length
-        ? await db.query(`SELECT * FROM customers WHERE id IN (?)`, [customerIds])
-        : [[]];
-    const customers = await hydrateCustomers(customerRows);
+    const [[customerRows], [currencyRows]] = await Promise.all([
+        customerIds.length
+            ? db.query(`SELECT * FROM customers WHERE id IN (?)`, [customerIds])
+            : Promise.resolve([[]]),
+        currencyIds.length
+            ? db.query(`SELECT id, name, symbol, code FROM currencies WHERE id IN (?)`, [currencyIds])
+            : Promise.resolve([[]])
+    ]);
+
+    const currenciesById = Object.fromEntries(currencyRows.map((row) => [row.id, row]));
+    const customers = await attachCustomerRelations(customerRows, currenciesById);
     const customersById = Object.fromEntries(customers.map((customer) => [customer.id, customer]));
 
-    const [currencyRows] = currencyIds.length
-        ? await db.query(`SELECT id, name, symbol, code FROM currencies WHERE id IN (?)`, [currencyIds])
-        : [[]];
-    const currenciesById = Object.fromEntries(currencyRows.map((row) => [row.id, row]));
+    let itemsByOrder = {};
 
-    const [itemRows] = await db.query(
-        `SELECT
-            oi.id,
-            oi.order_id,
-            oi.book_id,
-            oi.amount,
-            bp.price AS unit_price
-         FROM order_items oi
-         JOIN orders o ON o.id = oi.order_id
-         LEFT JOIN book_prices bp
-            ON bp.book_id = oi.book_id
-           AND bp.currency_id = o.currency_id
-         WHERE oi.order_id IN (?)`,
-        [orderIds]
-    );
+    if (includeItems) {
+        // Pick the latest book_prices row per (book_id, currency_id) so history
+        // rows do not multiply order_items in the response.
+        const [itemRows] = await db.query(
+            `SELECT
+                oi.id,
+                oi.order_id,
+                oi.book_id,
+                oi.amount,
+                bp.price AS unit_price
+             FROM order_items oi
+             JOIN orders o ON o.id = oi.order_id
+             LEFT JOIN book_prices bp
+                ON bp.id = (
+                    SELECT bp2.id
+                    FROM book_prices bp2
+                    WHERE bp2.book_id = oi.book_id
+                      AND bp2.currency_id = o.currency_id
+                    ORDER BY bp2.created_at DESC, bp2.id DESC
+                    LIMIT 1
+                )
+             WHERE oi.order_id IN (?)`,
+            [orderIds]
+        );
 
-    const bookIds = [...new Set(itemRows.map((item) => item.book_id).filter(Boolean))];
-    const [bookRows] = bookIds.length
-        ? await db.query(`SELECT * FROM books WHERE id IN (?)`, [bookIds])
-        : [[]];
-    const books = await hydrateBooks(bookRows);
-    const booksById = Object.fromEntries(books.map((book) => [book.id, book]));
+        const bookIds = [...new Set(itemRows.map((item) => item.book_id).filter(Boolean))];
+        const [bookRows] = bookIds.length
+            ? await db.query(`SELECT * FROM books WHERE id IN (?)`, [bookIds])
+            : [[]];
+        const books = await attachBookRelations(bookRows);
+        const booksById = Object.fromEntries(books.map((book) => [book.id, book]));
 
-    const itemsByOrder = groupBy(itemRows, 'order_id');
+        itemsByOrder = groupBy(itemRows, 'order_id');
 
-    return orders.map((order) => {
-        const items = (itemsByOrder[order.id] || []).map((item) => ({
-            id: item.id,
-            order_id: item.order_id,
-            book_id: item.book_id,
-            amount: item.amount,
-            unit_price: item.unit_price,
-            book: booksById[item.book_id] || null
-        }));
+        return orders.map((order) => {
+            const items = (itemsByOrder[order.id] || []).map((item) => ({
+                id: item.id,
+                order_id: item.order_id,
+                book_id: item.book_id,
+                amount: item.amount,
+                unit_price: item.unit_price,
+                book: booksById[item.book_id] || null
+            }));
 
-        return {
-            ...order,
-            customer: customersById[order.customer_id] || null,
-            currency: currenciesById[order.currency_id] || null,
-            items
-        };
-    });
+            return {
+                ...order,
+                customer: customersById[order.customer_id] || null,
+                currency: currenciesById[order.currency_id] || null,
+                items
+            };
+        });
+    }
+
+    return orders.map((order) => ({
+        ...order,
+        customer: customersById[order.customer_id] || null,
+        currency: currenciesById[order.currency_id] || null,
+        items: []
+    }));
 }
 
 function likeTerm(value) {
@@ -219,27 +258,25 @@ function likeTerm(value) {
 // Get paginated books with authors, genres, and prices
 app.get('/books', async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 50;
-        const offset = (page - 1) * limit;
+        const { page, limit, offset } = parsePagination(req.query);
 
-        const [books] = await db.query(
-            'SELECT * FROM books ORDER BY id DESC LIMIT ? OFFSET ?',
-            [limit, offset]
-        );
+        const [[books], [countResult]] = await Promise.all([
+            db.query(
+                'SELECT * FROM books ORDER BY id DESC LIMIT ? OFFSET ?',
+                [limit, offset]
+            ),
+            db.query('SELECT COUNT(*) as total FROM books')
+        ]);
 
-        const [countResult] = await db.query(
-            'SELECT COUNT(*) as total FROM books'
-        );
-
-        const data = await hydrateBooks(books);
+        const data = await attachBookRelations(books);
+        const total = countResult[0].total;
 
         res.json({
             data,
             page,
             limit,
-            total: countResult[0].total,
-            hasMore: offset + books.length < countResult[0].total
+            total,
+            hasMore: offset + books.length < total
         });
     } catch (error) {
         console.error(error);
@@ -249,8 +286,6 @@ app.get('/books', async (req, res) => {
 
 // Search books by title or author name
 app.get('/books/search', async (req, res) => {
-    console.time('total-search');
-
     try {
         const { query } = req.query;
 
@@ -259,8 +294,6 @@ app.get('/books/search', async (req, res) => {
         }
 
         const searchTerm = likeTerm(String(query).trim());
-
-        console.time('db-search');
 
         const [rows] = await db.query(
             `SELECT DISTINCT b.*
@@ -274,15 +307,10 @@ app.get('/books/search', async (req, res) => {
             [searchTerm, searchTerm]
         );
 
-        console.timeEnd('db-search');
-        console.log(`Found ${rows.length} books`);
-
-        res.json(await hydrateBooks(rows));
+        res.json(await attachBookRelations(rows));
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Search failed' });
-    } finally {
-        console.timeEnd('total-search');
     }
 });
 
@@ -298,7 +326,7 @@ app.get('/books/:id', async (req, res) => {
             return res.status(404).json({ error: 'Book not found' });
         }
 
-        const [book] = await hydrateBooks(rows);
+        const [book] = await attachBookRelations(rows);
         res.json(book);
     } catch (error) {
         console.error(error);
@@ -407,7 +435,7 @@ app.get('/currencies', async (req, res) => {
 app.get('/customers', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM customers ORDER BY id');
-        res.json(await hydrateCustomers(rows));
+        res.json(await attachCustomerRelations(rows));
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to load customers' });
@@ -425,7 +453,7 @@ app.get('/customers/:id', async (req, res) => {
             return res.status(404).json({ error: 'Customer not found' });
         }
 
-        const [customer] = await hydrateCustomers(rows);
+        const [customer] = await attachCustomerRelations(rows);
         res.json(customer);
     } catch (error) {
         console.error(error);
@@ -435,10 +463,27 @@ app.get('/customers/:id', async (req, res) => {
 
 app.get('/orders', async (req, res) => {
     try {
-        const [rows] = await db.query(
-            'SELECT * FROM orders ORDER BY created_at DESC, id DESC'
-        );
-        res.json(await hydrateOrders(rows));
+        const { page, limit, offset } = parsePagination(req.query);
+
+        const [[rows], [countResult]] = await Promise.all([
+            db.query(
+                'SELECT * FROM orders ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
+                [limit, offset]
+            ),
+            db.query('SELECT COUNT(*) as total FROM orders')
+        ]);
+
+        // List payload: customer + currency only. Full items/books live on GET /orders/:id.
+        const data = await attachOrderRelations(rows, { includeItems: false });
+        const total = countResult[0].total;
+
+        res.json({
+            data,
+            page,
+            limit,
+            total,
+            hasMore: offset + rows.length < total
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to load orders' });
@@ -456,7 +501,7 @@ app.get('/orders/:id', async (req, res) => {
             return res.status(404).json({ error: 'Order not found' });
         }
 
-        const [order] = await hydrateOrders(rows);
+        const [order] = await attachOrderRelations(rows, { includeItems: true });
         res.json(order);
     } catch (error) {
         console.error(error);

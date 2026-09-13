@@ -13,9 +13,9 @@ struct BooksListView: View {
   var body: some View {
     NavigationStack {
       Group {
-        if viewModel.books.isEmpty && viewModel.isLoading {
+        if viewModel.books.isEmpty && viewModel.loadingState.isLoading {
           ProgressView("Loading books…")
-        } else if viewModel.books.isEmpty, let error = viewModel.errorMessage {
+        } else if viewModel.books.isEmpty, let error = viewModel.loadingState.errorMessage {
           ContentUnavailableView {
             Label("Couldn’t load books", systemImage: "wifi.slash")
           } description: {
@@ -36,10 +36,12 @@ struct BooksListView: View {
             ForEach(Array(viewModel.books.enumerated()), id: \.element.id) { index, book in
               NavigationLink {
                 BookDetailsView(
-                  bookId: book.id,
-                  service: viewModel.service,
-                  onBookChanged: { viewModel.replaceBook($0) },
-                  onBookDeleted: { viewModel.removeBook(id: $0) }
+                  viewModel: BookDetailsViewModel(
+                    bookId: book.id,
+                    service: viewModel.service,
+                    onBookChanged: { viewModel.replaceBook($0) },
+                    onBookDeleted: { viewModel.removeBook(id: $0) }
+                  )
                 )
               } label: {
                 BookRowView(book: book)
@@ -60,7 +62,8 @@ struct BooksListView: View {
       }
       .navigationTitle("Books")
       .task {
-        await viewModel.loadInitialIfNeeded()
+        guard viewModel.books.isEmpty else { return }
+        await viewModel.loadBooks()
       }
       .searchable(text: $viewModel.searchText, prompt: "Search for a book...")
     }

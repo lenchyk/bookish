@@ -13,9 +13,9 @@ struct OrdersListView: View {
   var body: some View {
     NavigationStack {
       Group {
-        if viewModel.orders.isEmpty && viewModel.isLoading {
+        if viewModel.orders.isEmpty && viewModel.loadingState.isLoading {
           ProgressView("Loading orders…")
-        } else if viewModel.orders.isEmpty, let error = viewModel.errorMessage {
+        } else if viewModel.orders.isEmpty, let error = viewModel.loadingState.errorMessage {
           ContentUnavailableView {
             Label("Couldn’t load orders", systemImage: "wifi.slash")
           } description: {
@@ -34,7 +34,13 @@ struct OrdersListView: View {
         } else {
           List(viewModel.orders) { order in
             NavigationLink {
-              OrderDetailsView(order: order, service: viewModel.service)
+              OrderDetailsView(
+                viewModel: OrderDetailsViewModel(
+                  orderId: order.id,
+                  service: viewModel.service,
+                  order: order
+                )
+              )
             } label: {
               VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -45,26 +51,22 @@ struct OrdersListView: View {
                     .fontWeight(.bold)
                 }
 
-                Text(order.customer?.displayName ?? "Unknown customer")
+                Text(order.customer.displayName)
                   .font(.subheadline)
                   .foregroundStyle(.secondary)
 
                 HStack {
-                  if let status = order.status, !status.isEmpty {
-                    Text(status)
-                      .font(.caption)
-                      .padding(.horizontal, 8)
-                      .padding(.vertical, 4)
-                      .background(Color.blue.opacity(0.15))
-                      .foregroundStyle(.blue)
-                      .clipShape(Capsule())
-                  }
+                  Text(order.status.displayName)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
 
-                  if let createdAt = order.createdAt {
-                    Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                  }
+                  Text(order.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
               }
               .padding(.vertical, 4)
@@ -74,7 +76,7 @@ struct OrdersListView: View {
       }
       .navigationTitle("Orders")
       .task {
-        await viewModel.loadInitialIfNeeded()
+        await viewModel.loadOrders()
       }
       .refreshable {
         await viewModel.loadOrders()

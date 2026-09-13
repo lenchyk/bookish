@@ -8,47 +8,32 @@
 import SwiftUI
 
 struct OrderDetailsView: View {
-  let orderId: Int
-  @State private var viewModel: OrderDetailsViewModel
-
-  init(order: Order, service: BooksApplicationService) {
-    self.orderId = order.id
-    _viewModel = State(
-      initialValue: OrderDetailsViewModel(service: service, order: order)
-    )
-  }
-
-  init(orderId: Int, service: BooksApplicationService) {
-    self.orderId = orderId
-    _viewModel = State(
-      initialValue: OrderDetailsViewModel(service: service)
-    )
-  }
+  @Bindable var viewModel: OrderDetailsViewModel
 
   var body: some View {
     Group {
       if let order = viewModel.order {
         orderContent(order)
-      } else if viewModel.isLoading {
+      } else if viewModel.loadingState.isLoading {
         ProgressView("Loading order…")
       } else {
         ContentUnavailableView(
           "Order unavailable",
           systemImage: "exclamationmark.triangle",
-          description: Text(viewModel.errorMessage ?? "The order could not be loaded.")
+          description: Text(viewModel.loadingState.errorMessage ?? "The order could not be loaded.")
         )
       }
     }
-    .navigationTitle("Order #\(orderId)")
-    .task(id: orderId) {
-      await viewModel.loadOrder(id: orderId)
+    .navigationTitle("Order #\(viewModel.orderId)")
+    .task(id: viewModel.orderId) {
+      await viewModel.loadOrder()
     }
   }
 
   @ViewBuilder
   private func orderContent(_ order: Order) -> some View {
     List {
-      if let error = viewModel.errorMessage {
+      if let error = viewModel.loadingState.errorMessage {
         Section {
           Text(error)
             .foregroundStyle(.red)
@@ -56,41 +41,31 @@ struct OrderDetailsView: View {
       }
 
       Section("Order") {
-        LabeledContent("Status", value: order.status ?? "Unknown")
-        if let createdAt = order.createdAt {
-          LabeledContent(
-            "Created",
-            value: createdAt.formatted(date: .abbreviated, time: .shortened)
-          )
-        }
+        LabeledContent("Status", value: order.status.displayName)
+        LabeledContent(
+          "Created",
+          value: order.createdAt.formatted(date: .abbreviated, time: .shortened)
+        )
         LabeledContent("Total", value: order.formattedTotal)
-        if let currency = order.currency {
-          LabeledContent(
-            "Currency",
-            value: [currency.code, currency.symbol, currency.name]
-              .compactMap { $0 }
-              .filter { !$0.isEmpty }
-              .joined(separator: " · ")
-          )
-        }
-        if let description = order.description, !description.isEmpty {
-          Text(description)
+        LabeledContent(
+          "Currency",
+          value: [order.currency.code, order.currency.symbol, order.currency.name]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        )
+        if !order.description.isEmpty {
+          Text(order.description)
         }
       }
 
       Section("Customer") {
-        if let customer = order.customer {
-          Text(customer.displayName)
-          if let email = customer.email, !email.isEmpty {
-            Text(email)
-              .foregroundStyle(.secondary)
-          }
-          if let address = customer.address, !address.isEmpty {
-            Text(address)
-              .foregroundStyle(.secondary)
-          }
-        } else {
-          Text("Customer unavailable")
+        Text(order.customer.displayName)
+        if let email = order.customer.email, !email.isEmpty {
+          Text(email)
+            .foregroundStyle(.secondary)
+        }
+        if let address = order.customer.address, !address.isEmpty {
+          Text(address)
             .foregroundStyle(.secondary)
         }
       }
@@ -102,7 +77,7 @@ struct OrderDetailsView: View {
         } else {
           ForEach(order.items) { item in
             VStack(alignment: .leading, spacing: 6) {
-              Text(item.book?.title ?? "Unknown book")
+              Text(item.book.title)
                 .font(.headline)
               Text("Qty: \(item.amount)")
                 .font(.subheadline)

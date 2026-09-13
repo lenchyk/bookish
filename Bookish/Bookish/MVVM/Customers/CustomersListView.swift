@@ -13,9 +13,9 @@ struct CustomersListView: View {
   var body: some View {
     NavigationStack {
       Group {
-        if viewModel.customers.isEmpty && viewModel.isLoading {
+        if viewModel.customers.isEmpty && viewModel.loadingState.isLoading {
           ProgressView("Loading customers…")
-        } else if viewModel.customers.isEmpty, let error = viewModel.errorMessage {
+        } else if viewModel.customers.isEmpty, let error = viewModel.loadingState.errorMessage {
           ContentUnavailableView {
             Label("Couldn’t load customers", systemImage: "wifi.slash")
           } description: {
@@ -49,11 +49,9 @@ struct CustomersListView: View {
                   .foregroundStyle(.secondary)
               }
 
-              if let currency = customer.currency {
-                Text("Preferred currency: \(currency.code ?? currency.symbol ?? currency.name)")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
+              Text("Preferred currency: \(customer.currency.code)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
           }
@@ -61,7 +59,7 @@ struct CustomersListView: View {
       }
       .navigationTitle("Customers")
       .task {
-        await viewModel.loadInitialIfNeeded()
+        await viewModel.loadCustomers()
       }
       .refreshable {
         await viewModel.loadCustomers()

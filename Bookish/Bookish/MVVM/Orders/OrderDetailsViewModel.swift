@@ -11,35 +11,34 @@ import Observation
 @Observable
 @MainActor
 final class OrderDetailsViewModel {
+  let orderId: Int
   private let service: BooksApplicationService
 
   var order: Order?
-  var isLoading = false
-  var errorMessage: String?
+  var loadingState: LoadingState = .idle
 
-  init(service: BooksApplicationService, order: Order? = nil) {
+  init(orderId: Int, service: BooksApplicationService, order: Order? = nil) {
+    self.orderId = orderId
     self.service = service
     self.order = order
   }
 
-  func loadOrder(id: Int) async {
+  func loadOrder() async {
     if order == nil {
-      isLoading = true
+      loadingState = .loading
     }
 
-    defer { isLoading = false }
-
     do {
-      let loaded = try await service.getOrder(by: id)
+      let loaded = try await service.getOrder(by: orderId)
       guard !Task.isCancelled else { return }
       order = loaded
-      errorMessage = nil
+      loadingState = .loaded
     } catch is CancellationError {
       return
     } catch {
       guard !Task.isCancelled else { return }
       if order == nil {
-        errorMessage = error.localizedDescription
+        loadingState = .failed(error.localizedDescription)
       }
     }
   }

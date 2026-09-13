@@ -12,9 +12,7 @@ import Observation
 @MainActor
 final class CustomersListViewModel {
   var customers: [Customer] = []
-  var errorMessage: String?
-  var isLoading = false
-  private(set) var hasCompletedInitialLoad = false
+  var loadingState: LoadingState = .idle
 
   private let service: BooksApplicationService
 
@@ -22,25 +20,16 @@ final class CustomersListViewModel {
     self.service = service
   }
 
-  func loadInitialIfNeeded() async {
-    guard !hasCompletedInitialLoad else { return }
-    await loadCustomers()
-  }
-
   func loadCustomers() async {
-    isLoading = true
-    defer {
-      isLoading = false
-      hasCompletedInitialLoad = true
-    }
+    loadingState = .loading
 
     do {
       customers = try await service.getCustomers()
-      errorMessage = nil
+      loadingState = .loaded
     } catch is CancellationError {
       return
     } catch {
-      errorMessage = error.localizedDescription
+      loadingState = .failed(error.localizedDescription)
     }
   }
 }

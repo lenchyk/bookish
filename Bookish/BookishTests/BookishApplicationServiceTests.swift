@@ -15,7 +15,7 @@ final class MockBooksAPIClient: APIClientProtocol {
   var bookToReturn: Book?
   var booksResponseToReturn: BooksResponse?
   var customersToReturn: [Customer] = []
-  var ordersToReturn: [Order] = []
+  var ordersResponseToReturn: OrdersResponse?
   var orderToReturn: Order?
   var searchResults: [Book] = []
   var errorToThrow: Error?
@@ -58,9 +58,12 @@ final class MockBooksAPIClient: APIClientProtocol {
     return customersToReturn
   }
 
-  func getOrders() async throws -> [Order] {
+  func getOrders(page: Int, limit: Int) async throws -> OrdersResponse {
     if let errorToThrow { throw errorToThrow }
-    return ordersToReturn
+    guard let ordersResponseToReturn else {
+      throw APIError.httpStatus(500)
+    }
+    return ordersResponseToReturn
   }
 
   func getOrder(by id: Int) async throws -> Order {
@@ -232,6 +235,116 @@ struct BookishApplicationServiceTests {
   }
 
   @Test
+  func `saving a book updates the matching list row without reloading`() async throws {
+    let container = try makeContainer()
+    let api = MockBooksAPIClient()
+    let original = sampleBook(id: 1, title: "Swift", price: 20)
+    let other = sampleBook(id: 2, title: "Clean Code", price: 30, authorName: "Robert Martin")
+    api.bookToReturn = sampleBook(id: 1, title: "Updated Swift", price: 20)
+
+    let sut = BooksApplicationService(
+      apiClient: api,
+      cache: CacheStore(modelContainer: container)
+    )
+    let listViewModel = BooksListViewModel(service: sut)
+    listViewModel.books = [original, other]
+
+    let details = BookDetailsViewModel(
+      bookId: 1,
+      service: sut,
+      onBookChanged: { listViewModel.replaceBook($0) }
+    )
+    details.title = "Updated Swift"
+    details.amount = "3"
+    details.publishedYear = "2024"
+    details.pagesCount = "200"
+    details.typeOfBinding = .paperback
+    details.descriptionText = "A sample book"
+
+    await details.save()
+
+    #expect(listViewModel.books.map(\.title) == ["Updated Swift", "Clean Code"])
+    #expect(listViewModel.books.count == 2)
+  }
+
+  @Test
+  func `decodes live book payload with capitalized binding types`() throws {
+    let json = """
+    {
+      "data": [{
+        "id": 27408,
+        "title": "Winter Shadow",
+        "amount": 43,
+        "published_year": 1998,
+        "pages_count": 550,
+        "type_of_binding": "Paperback",
+        "description": "A generated description",
+        "authors": [{ "id": 26, "name": "Stephen King" }],
+        "genres": [{ "id": 8, "name": "Science Fiction" }],
+        "prices": [{
+          "id": 10006,
+          "book_id": 27408,
+          "price": "49.08",
+          "created_at": "2026-08-17T10:15:58.000Z",
+          "currency": {
+            "id": 4,
+            "name": "British Pound",
+            "symbol": "£",
+            "code": "GBP"
+          }
+        }]
+      }],
+      "page": 1,
+      "limit": 1,
+      "total": 10001,
+      "hasMore": true
+    }
+    """.data(using: .utf8)!
+
+    let response = try APIJSON.decoder.decode(BooksResponse.self, from: json)
+    let book = try #require(response.data.first)
+
+    #expect(book.title == "Winter Shadow")
+    #expect(book.typeOfBinding == .paperback)
+    #expect(book.prices.first?.price == Decimal(string: "49.08"))
+  }
+
+  @Test
+  func `decodes kindle and mass market binding types`() throws {
+    let json = """
+    [
+      {
+        "id": 1,
+        "title": "Kindle Book",
+        "amount": 1,
+        "published_year": 2020,
+        "pages_count": 100,
+        "type_of_binding": "Kindle Edition",
+        "description": "",
+        "authors": [],
+        "genres": [],
+        "prices": []
+      },
+      {
+        "id": 2,
+        "title": "Mass Market Book",
+        "amount": 1,
+        "published_year": 2020,
+        "pages_count": 100,
+        "type_of_binding": "Mass Market Paperback",
+        "description": "",
+        "authors": [],
+        "genres": [],
+        "prices": []
+      }
+    ]
+    """.data(using: .utf8)!
+
+    let books = try APIJSON.decoder.decode([Book].self, from: json)
+    #expect(books.map(\.typeOfBinding) == [.kindleEdition, .massMarketPaperback])
+  }
+
+  @Test
   func `decodes book JSON from the new schema`() throws {
     let json = """
     {
@@ -265,20 +378,25 @@ struct BookishApplicationServiceTests {
     #expect(book.amount == 4)
     #expect(book.publishedYear == 2024)
     #expect(book.pagesCount == 320)
-    #expect(book.typeOfBinding == "hardcover")
+    #expect(book.typeOfBinding == .hardcover)
     #expect(book.authors.first?.name == "Apple")
     #expect(book.genres.first?.name == "Programming")
     #expect(book.prices.first?.price == Decimal(string: "25.50"))
-    #expect(book.prices.first?.currency?.code == "USD")
+    #expect(book.prices.first?.currency.code == "USD")
     #expect(book.formattedPrice.contains("25.50") || book.formattedPrice.contains("$"))
   }
 
   @Test
-  func `missing price stays unavailable instead of decoding as zero`() throws {
+  func `missing price fails decoding instead of becoming zero`() throws {
     let json = """
     {
       "id": 1,
       "title": "Swift",
+      "amount": 1,
+      "published_year": 2024,
+      "pages_count": 100,
+      "type_of_binding": "paperback",
+      "description": "Incomplete price",
       "authors": [],
       "genres": [],
       "prices": [{
@@ -295,15 +413,13 @@ struct BookishApplicationServiceTests {
     }
     """.data(using: .utf8)!
 
-    let book = try APIJSON.decoder.decode(Book.self, from: json)
-
-    #expect(book.prices.first?.price == nil)
-    #expect(book.primaryPrice == nil)
-    #expect(book.formattedPrice == "Price unavailable")
+    #expect(throws: DecodingError.self) {
+      try APIJSON.decoder.decode(Book.self, from: json)
+    }
   }
 
   @Test
-  func `primary price uses the first amount that has a value`() {
+  func `primary price uses the first amount`() {
     let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
     let first = BookPrice(
       id: 1,
@@ -317,9 +433,63 @@ struct BookishApplicationServiceTests {
       price: Decimal(40),
       currency: usd
     )
-    let book = Book(id: 1, title: "Swift", prices: [first, second])
+    let book = Book(
+      id: 1,
+      title: "Swift",
+      amount: 1,
+      publishedYear: 2024,
+      pagesCount: 100,
+      typeOfBinding: .paperback,
+      description: "Sample",
+      prices: [first, second]
+    )
     #expect(book.primaryPrice?.id == 1)
     #expect(book.primaryPrice?.price == Decimal(10))
+  }
+
+  @Test
+  func `decodes live orders payload with completed status`() throws {
+    let json = """
+    {
+      "data": [{
+        "id": 10,
+        "description": "Literature order",
+        "total_price": "2958.09",
+        "created_at": "2026-08-17T10:19:12.000Z",
+        "status": "completed",
+        "customer": {
+          "id": 2,
+          "fullname": "Anna Johnson",
+          "email": "anna@example.com",
+          "address": "Kyiv, Ukraine",
+          "currency": {
+            "id": 1,
+            "name": "Ukrainian Hryvnia",
+            "symbol": "₴",
+            "code": "UAH"
+          }
+        },
+        "currency": {
+          "id": 1,
+          "name": "Ukrainian Hryvnia",
+          "symbol": "₴",
+          "code": "UAH"
+        },
+        "items": []
+      }],
+      "page": 1,
+      "limit": 50,
+      "total": 10,
+      "hasMore": false
+    }
+    """.data(using: .utf8)!
+
+    let response = try APIJSON.decoder.decode(OrdersResponse.self, from: json)
+    let order = try #require(response.data.first)
+
+    #expect(order.status == .completed)
+    #expect(order.totalPrice == Decimal(string: "2958.09"))
+    #expect(order.items.isEmpty)
   }
 
   @Test
@@ -357,6 +527,11 @@ struct BookishApplicationServiceTests {
         "book": {
           "id": 1,
           "title": "Swift",
+          "amount": 3,
+          "published_year": 2024,
+          "pages_count": 200,
+          "type_of_binding": "paperback",
+          "description": "A sample book",
           "authors": [],
           "genres": [],
           "prices": []
@@ -367,20 +542,23 @@ struct BookishApplicationServiceTests {
 
     let order = try APIJSON.decoder.decode(Order.self, from: json)
 
-    #expect(order.currency?.code == "USD")
-    #expect(order.customer?.currency?.code == "EUR")
-    #expect(order.displayTotal == Decimal(string: "40.00"))
+    #expect(order.currency.code == "USD")
+    #expect(order.customer.currency.code == "EUR")
+    #expect(order.totalPrice == Decimal(string: "40.00"))
     #expect(order.computedTotal == Decimal(string: "40.00"))
     #expect(order.items.first?.amount == 2)
+    #expect(order.status == .paid)
     #expect(order.formattedTotal.contains("$") || order.formattedTotal.contains("40"))
   }
 
   @Test
-  func `order item price resolves from book_prices in the order currency`() throws {
+  func `order item uses unit price from the payload`() throws {
     let json = """
     {
       "id": 8,
-      "total_price": null,
+      "description": "Currency check",
+      "total_price": "40.00",
+      "created_at": "2026-05-23T10:00:00.000Z",
       "status": "paid",
       "currency": {
         "id": 1,
@@ -402,9 +580,15 @@ struct BookishApplicationServiceTests {
         "id": 15,
         "book_id": 1,
         "amount": 2,
+        "unit_price": "20.00",
         "book": {
           "id": 1,
           "title": "Swift",
+          "amount": 3,
+          "published_year": 2024,
+          "pages_count": 200,
+          "type_of_binding": "paperback",
+          "description": "A sample book",
           "authors": [],
           "genres": [],
           "prices": [
@@ -429,21 +613,20 @@ struct BookishApplicationServiceTests {
     let order = try APIJSON.decoder.decode(Order.self, from: json)
     let item = try #require(order.items.first)
 
-    #expect(item.unitPrice == nil)
-    #expect(item.resolvedUnitPrice(currency: order.currency) == Decimal(string: "20.00"))
-    #expect(item.lineTotal(currency: order.currency) == Decimal(string: "40.00"))
+    #expect(item.unitPrice == Decimal(string: "20.00"))
+    #expect(item.lineTotal() == Decimal(string: "40.00"))
     #expect(order.computedTotal == Decimal(string: "40.00"))
-    #expect(order.displayTotal == Decimal(string: "40.00"))
+    #expect(order.totalPrice == Decimal(string: "40.00"))
     #expect(item.formattedUnitPrice(currency: order.currency).contains("20") || item.formattedUnitPrice(currency: order.currency).contains("$"))
   }
 
   @Test
-  func `getOrders caches orders and items`() async throws {
+  func `getOrders caches order summaries without wiping detail items`() async throws {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
 
     let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
-    let order = Order(
+    let detailed = Order(
       id: 7,
       customer: Customer(
         id: 2,
@@ -456,7 +639,7 @@ struct BookishApplicationServiceTests {
       description: "Gift order",
       totalPrice: Decimal(40),
       createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-      status: "paid",
+      status: .paid,
       items: [
         OrderItem(
           id: 15,
@@ -467,23 +650,42 @@ struct BookishApplicationServiceTests {
         )
       ]
     )
+    let summary = Order(
+      id: 7,
+      customer: detailed.customer,
+      currency: usd,
+      description: "Gift order",
+      totalPrice: Decimal(40),
+      createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+      status: .paid,
+      items: []
+    )
 
-    api.ordersToReturn = [order]
-    api.orderToReturn = order
+    api.orderToReturn = detailed
+    api.ordersResponseToReturn = OrdersResponse(
+      data: [summary],
+      page: 1,
+      limit: 50,
+      total: 1,
+      hasMore: false
+    )
 
     let sut = BooksApplicationService(
       apiClient: api,
       cache: CacheStore(modelContainer: container)
     )
 
+    _ = try await sut.getOrder(by: 7)
+
     let orders = try await sut.getOrders()
     #expect(orders.count == 1)
-    #expect(orders.first?.currency?.code == "USD")
-    #expect(orders.first?.items.first?.unitPrice == Decimal(20))
+    #expect(orders.first?.items.isEmpty == true)
 
+    api.errorToThrow = APIError.httpStatus(500)
     let cached = try await sut.getOrder(by: 7)
-    #expect(cached.customer?.fullname == "Ada Lovelace")
+    #expect(cached.customer.fullname == "Ada Lovelace")
     #expect(cached.items.count == 1)
+    #expect(cached.items.first?.unitPrice == Decimal(20))
   }
 
   @Test
@@ -504,7 +706,7 @@ struct BookishApplicationServiceTests {
       description: "Direct fetch",
       totalPrice: Decimal(18),
       createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-      status: "paid",
+      status: .paid,
       items: [
         OrderItem(
           id: 21,
@@ -526,7 +728,7 @@ struct BookishApplicationServiceTests {
     let loaded = try await sut.getOrder(by: 9)
     #expect(loaded.id == 9)
     #expect(loaded.items.count == 1)
-    #expect(loaded.formattedTotal.contains("18") || loaded.currency?.code == "USD")
+    #expect(loaded.formattedTotal.contains("18") || loaded.currency.code == "USD")
   }
 }
 
@@ -555,7 +757,7 @@ func sampleBook(
     amount: 3,
     publishedYear: 2024,
     pagesCount: 200,
-    typeOfBinding: "paperback",
+    typeOfBinding: .paperback,
     description: "A sample book",
     authors: [Author(id: 9, name: authorName)],
     genres: [Genre(id: 3, name: "Programming")],

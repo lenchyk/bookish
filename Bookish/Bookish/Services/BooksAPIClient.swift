@@ -16,7 +16,7 @@ protocol BooksAPIProtocol {
 }
 
 protocol OrdersAPIProtocol {
-  func getOrders() async throws -> [Order]
+  func getOrders(page: Int, limit: Int) async throws -> OrdersResponse
   func getOrder(by id: Int) async throws -> Order
 }
 
@@ -81,8 +81,14 @@ final class APIClient: APIClientProtocol {
     try await get(path: "/customers")
   }
 
-  func getOrders() async throws -> [Order] {
-    try await get(path: "/orders")
+  func getOrders(page: Int, limit: Int = BookishPaging.pageSize) async throws -> OrdersResponse {
+    try await get(
+      path: "/orders",
+      queryItems: [
+        URLQueryItem(name: "page", value: String(page)),
+        URLQueryItem(name: "limit", value: String(limit))
+      ]
+    )
   }
 
   func getOrder(by id: Int) async throws -> Order {

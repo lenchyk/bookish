@@ -12,11 +12,11 @@ import SwiftData
 final class BookCache {
   @Attribute(.unique) var id: Int
   var title: String
-  var amount: Int?
-  var publishedYear: Int?
-  var pagesCount: Int?
-  var typeOfBinding: String?
-  var bookDescription: String?
+  var amount: Int
+  var publishedYear: Int
+  var pagesCount: Int
+  var typeOfBinding: BindingType
+  var bookDescription: String
 
   @Relationship(deleteRule: .nullify, inverse: \AuthorCache.books)
   var authors: [AuthorCache]
@@ -30,11 +30,11 @@ final class BookCache {
   init(
     id: Int,
     title: String,
-    amount: Int? = nil,
-    publishedYear: Int? = nil,
-    pagesCount: Int? = nil,
-    typeOfBinding: String? = nil,
-    bookDescription: String? = nil,
+    amount: Int,
+    publishedYear: Int,
+    pagesCount: Int,
+    typeOfBinding: BindingType,
+    bookDescription: String,
     authors: [AuthorCache] = [],
     genres: [GenreCache] = [],
     prices: [BookPriceCache] = []
@@ -111,14 +111,14 @@ final class GenreCache {
 final class CurrencyCache {
   @Attribute(.unique) var id: Int
   var name: String
-  var symbol: String?
-  var code: String?
+  var symbol: String
+  var code: String
 
   init(
     id: Int,
     name: String,
-    symbol: String?,
-    code: String?
+    symbol: String,
+    code: String
   ) {
     self.id = id
     self.name = name
@@ -136,26 +136,30 @@ final class CurrencyCache {
 @Model
 final class BookPriceCache {
   @Attribute(.unique) var id: Int
-  var price: Decimal?
+  var bookId: Int
+  var price: Decimal
   var createdAt: Date?
-  var currency: CurrencyCache?
+  var currency: CurrencyCache
   var book: BookCache?
 
   init(
     id: Int,
-    price: Decimal?,
+    bookId: Int,
+    price: Decimal,
     createdAt: Date? = nil,
-    currency: CurrencyCache? = nil,
+    currency: CurrencyCache,
     book: BookCache? = nil
   ) {
     self.id = id
+    self.bookId = bookId
     self.price = price
     self.createdAt = createdAt
     self.currency = currency
     self.book = book
   }
 
-  func update(from price: BookPrice, currency: CurrencyCache?) {
+  func update(from price: BookPrice, currency: CurrencyCache) {
+    bookId = price.bookId
     self.price = price.price
     createdAt = price.createdAt
     self.currency = currency

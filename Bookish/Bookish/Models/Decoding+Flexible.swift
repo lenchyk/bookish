@@ -68,45 +68,88 @@ enum APIJSON {
   }
 }
 
+enum FlexibleEnumDecoding {
+  static func value<T: RawRepresentable>(
+    from decoder: Decoder,
+    aliases: [String: T] = [:]
+  ) throws -> T where T.RawValue == String {
+    let container = try decoder.singleValueContainer()
+    let raw = try container.decode(String.self)
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    let lowered = trimmed.lowercased()
+
+    if let aliased = aliases[lowered] {
+      return aliased
+    }
+
+    let candidates = [
+      trimmed,
+      lowered,
+      lowered.replacingOccurrences(of: "_", with: " "),
+      lowered.replacingOccurrences(of: " ", with: "_"),
+      lowered.replacingOccurrences(of: "-", with: " ")
+    ]
+
+    for candidate in candidates {
+      if let value = T(rawValue: candidate) {
+        return value
+      }
+    }
+
+    throw DecodingError.dataCorruptedError(
+      in: container,
+      debugDescription: "Unknown value '\(raw)' for \(T.self)"
+    )
+  }
+}
+
 extension KeyedDecodingContainer {
-  func decodeFlexibleDecimal(forKey key: Key) throws -> Decimal? {
-    if let value = try? decodeIfPresent(Decimal.self, forKey: key) {
+  func decodeFlexibleDecimal(forKey key: Key) throws -> Decimal {
+    if let value = try? decode(Decimal.self, forKey: key) {
       return value
     }
-    if let value = try? decodeIfPresent(Double.self, forKey: key) {
+    if let value = try? decode(Double.self, forKey: key) {
       return Decimal(value)
     }
-    if let value = try? decodeIfPresent(Int.self, forKey: key) {
+    if let value = try? decode(Int.self, forKey: key) {
       return Decimal(value)
     }
-    if let value = try? decodeIfPresent(String.self, forKey: key) {
-      return Decimal(string: value)
+    if let value = try? decode(String.self, forKey: key),
+       let decimal = Decimal(string: value) {
+      return decimal
     }
-    return nil
+
+    throw DecodingError.valueNotFound(
+      Decimal.self,
+      DecodingError.Context(
+        codingPath: codingPath + [key],
+        debugDescription: "Expected a decimal value for key \(key.stringValue)"
+      )
+    )
   }
 }
 
 enum PriceFormatter {
   private static var formatters: [String: NumberFormatter] = [:]
 
-  static func string(price: Decimal, currency: Currency?) -> String {
+  static func string(price: Decimal, currency: Currency) -> String {
     let formatter = formatter(for: currency)
 
     if let formatted = formatter.string(from: price as NSDecimalNumber) {
       return formatted
     }
 
-    if let symbol = currency?.symbol, !symbol.isEmpty {
-      return "\(price) \(symbol)"
+    if !currency.symbol.isEmpty {
+      return "\(price) \(currency.symbol)"
     }
-    if let code = currency?.code, !code.isEmpty {
-      return "\(price) \(code)"
+    if !currency.code.isEmpty {
+      return "\(price) \(currency.code)"
     }
     return "\(price)"
   }
 
-  private static func formatter(for currency: Currency?) -> NumberFormatter {
-    let key = "\(currency?.code ?? "")|\(currency?.symbol ?? "")"
+  private static func formatter(for currency: Currency) -> NumberFormatter {
+    let key = "\(currency.code)|\(currency.symbol)"
     if let existing = formatters[key] {
       return existing
     }
@@ -115,11 +158,11 @@ enum PriceFormatter {
     formatter.numberStyle = .currency
     formatter.minimumFractionDigits = 2
     formatter.maximumFractionDigits = 2
-    if let code = currency?.code, !code.isEmpty {
-      formatter.currencyCode = code
+    if !currency.code.isEmpty {
+      formatter.currencyCode = currency.code
     }
-    if let symbol = currency?.symbol, !symbol.isEmpty {
-      formatter.currencySymbol = symbol
+    if !currency.symbol.isEmpty {
+      formatter.currencySymbol = currency.symbol
     }
     formatters[key] = formatter
     return formatter

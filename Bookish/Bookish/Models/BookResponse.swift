@@ -12,3 +12,11 @@ struct BooksResponse: Decodable {
   let total: Int
   let hasMore: Bool
 }
+
+struct OrdersResponse: Decodable {
+  let data: [Order]
+  let page: Int
+  let limit: Int
+  let total: Int
+  let hasMore: Bool
+}

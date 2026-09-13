@@ -27,7 +27,7 @@ actor CacheStore {
   }
 
   func upsertOrders(_ orders: [Order]) throws {
-    let nestedBooks = orders.flatMap { $0.items.compactMap(\.book) }
+    let nestedBooks = orders.flatMap { $0.items.map(\.book) }
     try upsertBooks(nestedBooks, save: false)
 
     for order in orders {
@@ -37,7 +37,7 @@ actor CacheStore {
   }
 
   func upsertOrder(_ order: Order) throws {
-    let nestedBooks = order.items.compactMap(\.book)
+    let nestedBooks = order.items.map(\.book)
     try upsertBooks(nestedBooks, save: false)
     try upsertOrder(order, save: true)
   }
@@ -124,7 +124,7 @@ actor CacheStore {
     )
     var currenciesByID = Dictionary(
       uniqueKeysWithValues: try fetchCurrencies(
-        ids: books.flatMap { $0.prices.compactMap(\.currency?.id) }
+        ids: books.flatMap { $0.prices.map(\.currency.id) }
       ).map { ($0.id, $0) }
     )
     var pricesByID = Dictionary(
@@ -163,20 +163,30 @@ actor CacheStore {
   }
 
   private func upsertOrder(_ order: Order, save: Bool) throws {
-    let customer = try order.customer.map { try upsertCustomer($0) }
-    let currency = try order.currency.map { try upsertCurrency($0) }
+    let customer = try upsertCustomer(order.customer)
+    let currency = try upsertCurrency(order.currency)
 
     let cached: OrderCache
     if let existing = try fetchOrder(id: order.id) {
       existing.update(from: order, customer: customer, currency: currency)
       cached = existing
     } else {
-      cached = OrderCache(id: order.id)
-      cached.update(from: order, customer: customer, currency: currency)
+      cached = OrderCache(
+        id: order.id,
+        orderDescription: order.description,
+        totalPrice: order.totalPrice,
+        createdAt: order.createdAt,
+        status: order.status,
+        customer: customer,
+        currency: currency
+      )
       modelContext.insert(cached)
     }
 
-    cached.items = try upsertOrderItems(order.items)
+    // List endpoints may omit items; keep previously cached line items.
+    if !order.items.isEmpty {
+      cached.items = try upsertOrderItems(order.items)
+    }
 
     if save {
       try modelContext.save()
@@ -216,24 +226,20 @@ actor CacheStore {
     currencies: inout [Int: CurrencyCache],
     prices: inout [Int: BookPriceCache]
   ) -> BookPriceCache {
-    let currency: CurrencyCache?
-    if let nested = price.currency {
-      if let existing = currencies[nested.id] {
-        existing.update(from: nested)
-        currency = existing
-      } else {
-        let created = CurrencyCache(
-          id: nested.id,
-          name: nested.name,
-          symbol: nested.symbol,
-          code: nested.code
-        )
-        modelContext.insert(created)
-        currencies[nested.id] = created
-        currency = created
-      }
+    let currency: CurrencyCache
+    if let existing = currencies[price.currency.id] {
+      existing.update(from: price.currency)
+      currency = existing
     } else {
-      currency = nil
+      let created = CurrencyCache(
+        id: price.currency.id,
+        name: price.currency.name,
+        symbol: price.currency.symbol,
+        code: price.currency.code
+      )
+      modelContext.insert(created)
+      currencies[price.currency.id] = created
+      currency = created
     }
 
     if let existing = prices[price.id] {
@@ -243,6 +249,7 @@ actor CacheStore {
 
     let cache = BookPriceCache(
       id: price.id,
+      bookId: price.bookId,
       price: price.price,
       createdAt: price.createdAt,
       currency: currency
@@ -253,7 +260,7 @@ actor CacheStore {
   }
 
   private func upsertCustomer(_ customer: Customer) throws -> CustomerCache {
-    let currency = try customer.currency.map { try upsertCurrency($0) }
+    let currency = try upsertCurrency(customer.currency)
     if let existing = try fetchCustomer(id: customer.id) {
       existing.update(from: customer, currency: currency)
       return existing
@@ -286,13 +293,8 @@ actor CacheStore {
 
   private func upsertOrderItems(_ items: [OrderItem]) throws -> [OrderItemCache] {
     try items.map { item in
-      let book: BookCache?
-      if let nested = item.book {
-        book = try fetchBook(id: nested.id)
-      } else if let bookId = item.bookId {
-        book = try fetchBook(id: bookId)
-      } else {
-        book = nil
+      guard let book = try fetchBook(id: item.book.id) else {
+        throw APIError.httpStatus(404)
       }
 
       if let existing = try fetchOrderItem(id: item.id) {
@@ -302,6 +304,7 @@ actor CacheStore {
 
       let cache = OrderItemCache(
         id: item.id,
+        bookId: item.bookId,
         amount: item.amount,
         unitPrice: item.unitPrice,
         book: book

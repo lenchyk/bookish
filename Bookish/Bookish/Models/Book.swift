@@ -10,11 +10,11 @@ import Foundation
 struct Book: Codable, Identifiable, Equatable {
   let id: Int
   let title: String
-  let amount: Int?
-  let publishedYear: Int?
-  let pagesCount: Int?
-  let typeOfBinding: String?
-  let description: String?
+  let amount: Int
+  let publishedYear: Int
+  let pagesCount: Int
+  let typeOfBinding: BindingType
+  let description: String
   let authors: [Author]
   let genres: [Genre]
   let prices: [BookPrice]
@@ -22,11 +22,11 @@ struct Book: Codable, Identifiable, Equatable {
   init(
     id: Int,
     title: String,
-    amount: Int? = nil,
-    publishedYear: Int? = nil,
-    pagesCount: Int? = nil,
-    typeOfBinding: String? = nil,
-    description: String? = nil,
+    amount: Int,
+    publishedYear: Int,
+    pagesCount: Int,
+    typeOfBinding: BindingType,
+    description: String,
     authors: [Author] = [],
     genres: [Genre] = [],
     prices: [BookPrice] = []
@@ -43,33 +43,17 @@ struct Book: Codable, Identifiable, Equatable {
     self.prices = prices
   }
 
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(Int.self, forKey: .id)
-    title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-    amount = try container.decodeIfPresent(Int.self, forKey: .amount)
-    publishedYear = try container.decodeIfPresent(Int.self, forKey: .publishedYear)
-    pagesCount = try container.decodeIfPresent(Int.self, forKey: .pagesCount)
-    typeOfBinding = try container.decodeIfPresent(String.self, forKey: .typeOfBinding)
-    description = try container.decodeIfPresent(String.self, forKey: .description)
-    authors = try container.decodeIfPresent([Author].self, forKey: .authors) ?? []
-    genres = try container.decodeIfPresent([Genre].self, forKey: .genres) ?? []
-    prices = try container.decodeIfPresent([BookPrice].self, forKey: .prices) ?? []
-  }
-
   init(cache: BookCache) {
-    self.init(
-      id: cache.id,
-      title: cache.title,
-      amount: cache.amount,
-      publishedYear: cache.publishedYear,
-      pagesCount: cache.pagesCount,
-      typeOfBinding: cache.typeOfBinding,
-      description: cache.bookDescription,
-      authors: cache.authors.map(Author.init(cache:)),
-      genres: cache.genres.map(Genre.init(cache:)),
-      prices: cache.prices.map(BookPrice.init(cache:))
-    )
+    id = cache.id
+    title = cache.title
+    amount = cache.amount
+    publishedYear = cache.publishedYear
+    pagesCount = cache.pagesCount
+    typeOfBinding = cache.typeOfBinding
+    description = cache.bookDescription
+    authors = cache.authors.map(Author.init(cache:))
+    genres = cache.genres.map(Genre.init(cache:))
+    prices = cache.prices.map(BookPrice.init(cache:))
   }
 
   var authorsDisplay: String {
@@ -78,12 +62,11 @@ struct Book: Codable, Identifiable, Equatable {
   }
 
   var genresDisplay: String {
-    let names = genres.map(\.name).filter { !$0.isEmpty }
-    return names.joined(separator: ", ")
+    genres.map(\.name).filter { !$0.isEmpty }.joined(separator: ", ")
   }
 
   var primaryPrice: BookPrice? {
-    prices.first { $0.price != nil }
+    prices.first
   }
 
   var formattedPrice: String {
@@ -96,9 +79,9 @@ struct Book: Codable, Identifiable, Equatable {
 
 struct BookUpdate: Encodable {
   let title: String
-  let amount: Int?
-  let publishedYear: Int?
-  let pagesCount: Int?
-  let typeOfBinding: String?
-  let description: String?
+  let amount: Int
+  let publishedYear: Int
+  let pagesCount: Int
+  let typeOfBinding: BindingType
+  let description: String
 }
