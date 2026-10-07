@@ -42,8 +42,8 @@ actor CacheStore {
     try upsertOrder(order, save: true)
   }
 
-  func deleteBook(id: Int) throws {
-    if let cached = try fetchBook(id: id) {
+  func deleteBook(id: Book.ID) throws {
+    if let cached = try fetchBook(id: id.id) {
       modelContext.delete(cached)
       try modelContext.save()
     }
@@ -62,8 +62,8 @@ actor CacheStore {
     return CachedPage(items: items, hasMore: hasMore)
   }
 
-  func book(id: Int) throws -> Book? {
-    try fetchBook(id: id).map(Book.init(cache:))
+  func book(id: Book.ID) throws -> Book? {
+    try fetchBook(id: id.id).map(Book.init(cache:))
   }
 
   func searchBooks(query: String, limit: Int = BookishPaging.pageSize) throws -> [Book] {
@@ -104,8 +104,8 @@ actor CacheStore {
     return try modelContext.fetch(descriptor).map(Order.init(cache:))
   }
 
-  func order(id: Int) throws -> Order? {
-    try fetchOrder(id: id).map(Order.init(cache:))
+  func order(id: Order.ID) throws -> Order? {
+    try fetchOrder(id: id.id).map(Order.init(cache:))
   }
 
   // MARK: - Upsert
@@ -114,21 +114,21 @@ actor CacheStore {
     guard !books.isEmpty else { return }
 
     var booksByID = Dictionary(
-      uniqueKeysWithValues: try fetchBooks(ids: books.map(\.id)).map { ($0.id, $0) }
+      uniqueKeysWithValues: try fetchBooks(ids: books.map(\.id.id)).map { ($0.id, $0) }
     )
     var authorsByID = Dictionary(
-      uniqueKeysWithValues: try fetchAuthors(ids: books.flatMap { $0.authors.map(\.id) }).map { ($0.id, $0) }
+      uniqueKeysWithValues: try fetchAuthors(ids: books.flatMap { $0.authors.map(\.id.id) }).map { ($0.id, $0) }
     )
     var genresByID = Dictionary(
-      uniqueKeysWithValues: try fetchGenres(ids: books.flatMap { $0.genres.map(\.id) }).map { ($0.id, $0) }
+      uniqueKeysWithValues: try fetchGenres(ids: books.flatMap { $0.genres.map(\.id.id) }).map { ($0.id, $0) }
     )
     var currenciesByID = Dictionary(
       uniqueKeysWithValues: try fetchCurrencies(
-        ids: books.flatMap { $0.prices.map(\.currency.id) }
+        ids: books.flatMap { $0.prices.map(\.currency.id.id) }
       ).map { ($0.id, $0) }
     )
     var pricesByID = Dictionary(
-      uniqueKeysWithValues: try fetchPrices(ids: books.flatMap { $0.prices.map(\.id) }).map { ($0.id, $0) }
+      uniqueKeysWithValues: try fetchPrices(ids: books.flatMap { $0.prices.map(\.id.id) }).map { ($0.id, $0) }
     )
 
     for book in books {
@@ -143,13 +143,13 @@ actor CacheStore {
       }
 
       let cached: BookCache
-      if let existing = booksByID[book.id] {
+      if let existing = booksByID[book.id.id] {
         existing.update(from: book)
         cached = existing
       } else {
         cached = BookCache(book: book)
         modelContext.insert(cached)
-        booksByID[book.id] = cached
+        booksByID[book.id.id] = cached
       }
 
       cached.authors = authors
@@ -167,12 +167,12 @@ actor CacheStore {
     let currency = try upsertCurrency(order.currency)
 
     let cached: OrderCache
-    if let existing = try fetchOrder(id: order.id) {
+    if let existing = try fetchOrder(id: order.id.id) {
       existing.update(from: order, customer: customer, currency: currency)
       cached = existing
     } else {
       cached = OrderCache(
-        id: order.id,
+        id: order.id.id,
         orderDescription: order.description,
         totalPrice: order.totalPrice,
         createdAt: order.createdAt,
@@ -195,78 +195,78 @@ actor CacheStore {
 
   private func upsertAuthor(
     _ author: Author,
-    into authorsByID: inout [Int: AuthorCache]
+    into authorsByID: inout [String: AuthorCache]
   ) -> AuthorCache {
-    if let existing = authorsByID[author.id] {
+    if let existing = authorsByID[author.id.id] {
       existing.update(from: author)
       return existing
     }
-    let cache = AuthorCache(id: author.id, name: author.name)
+    let cache = AuthorCache(id: author.id.id, name: author.name)
     modelContext.insert(cache)
-    authorsByID[author.id] = cache
+    authorsByID[author.id.id] = cache
     return cache
   }
 
   private func upsertGenre(
     _ genre: Genre,
-    into genresByID: inout [Int: GenreCache]
+    into genresByID: inout [String: GenreCache]
   ) -> GenreCache {
-    if let existing = genresByID[genre.id] {
+    if let existing = genresByID[genre.id.id] {
       existing.update(from: genre)
       return existing
     }
-    let cache = GenreCache(id: genre.id, name: genre.name)
+    let cache = GenreCache(id: genre.id.id, name: genre.name)
     modelContext.insert(cache)
-    genresByID[genre.id] = cache
+    genresByID[genre.id.id] = cache
     return cache
   }
 
   private func upsertPrice(
     _ price: BookPrice,
-    currencies: inout [Int: CurrencyCache],
-    prices: inout [Int: BookPriceCache]
+    currencies: inout [String: CurrencyCache],
+    prices: inout [String: BookPriceCache]
   ) -> BookPriceCache {
     let currency: CurrencyCache
-    if let existing = currencies[price.currency.id] {
+    if let existing = currencies[price.currency.id.id] {
       existing.update(from: price.currency)
       currency = existing
     } else {
       let created = CurrencyCache(
-        id: price.currency.id,
+        id: price.currency.id.id,
         name: price.currency.name,
         symbol: price.currency.symbol,
         code: price.currency.code
       )
       modelContext.insert(created)
-      currencies[price.currency.id] = created
+      currencies[price.currency.id.id] = created
       currency = created
     }
 
-    if let existing = prices[price.id] {
+    if let existing = prices[price.id.id] {
       existing.update(from: price, currency: currency)
       return existing
     }
 
     let cache = BookPriceCache(
-      id: price.id,
-      bookId: price.bookId,
+      id: price.id.id,
+      bookId: price.bookId.id,
       price: price.price,
       createdAt: price.createdAt,
       currency: currency
     )
     modelContext.insert(cache)
-    prices[price.id] = cache
+    prices[price.id.id] = cache
     return cache
   }
 
   private func upsertCustomer(_ customer: Customer) throws -> CustomerCache {
     let currency = try upsertCurrency(customer.currency)
-    if let existing = try fetchCustomer(id: customer.id) {
+    if let existing = try fetchCustomer(id: customer.id.id) {
       existing.update(from: customer, currency: currency)
       return existing
     }
     let cache = CustomerCache(
-      id: customer.id,
+      id: customer.id.id,
       fullname: customer.fullname,
       email: customer.email,
       address: customer.address,
@@ -277,12 +277,12 @@ actor CacheStore {
   }
 
   private func upsertCurrency(_ currency: Currency) throws -> CurrencyCache {
-    if let existing = try fetchCurrency(id: currency.id) {
+    if let existing = try fetchCurrency(id: currency.id.id) {
       existing.update(from: currency)
       return existing
     }
     let cache = CurrencyCache(
-      id: currency.id,
+      id: currency.id.id,
       name: currency.name,
       symbol: currency.symbol,
       code: currency.code
@@ -293,18 +293,18 @@ actor CacheStore {
 
   private func upsertOrderItems(_ items: [OrderItem]) throws -> [OrderItemCache] {
     try items.map { item in
-      guard let book = try fetchBook(id: item.book.id) else {
+      guard let book = try fetchBook(id: item.book.id.id) else {
         throw APIError.httpStatus(404)
       }
 
-      if let existing = try fetchOrderItem(id: item.id) {
+      if let existing = try fetchOrderItem(id: item.id.id) {
         existing.update(from: item, book: book)
         return existing
       }
 
       let cache = OrderItemCache(
-        id: item.id,
-        bookId: item.bookId,
+        id: item.id.id,
+        bookId: item.bookId.id,
         amount: item.amount,
         unitPrice: item.unitPrice,
         book: book
@@ -316,7 +316,7 @@ actor CacheStore {
 
   // MARK: - Fetches
 
-  private func fetchBooks(ids: [Int]) throws -> [BookCache] {
+  private func fetchBooks(ids: [String]) throws -> [BookCache] {
     let targetIDs = Array(Set(ids))
     guard !targetIDs.isEmpty else { return [] }
     return try modelContext.fetch(
@@ -324,7 +324,7 @@ actor CacheStore {
     )
   }
 
-  private func fetchAuthors(ids: [Int]) throws -> [AuthorCache] {
+  private func fetchAuthors(ids: [String]) throws -> [AuthorCache] {
     let targetIDs = Array(Set(ids))
     guard !targetIDs.isEmpty else { return [] }
     return try modelContext.fetch(
@@ -332,7 +332,7 @@ actor CacheStore {
     )
   }
 
-  private func fetchGenres(ids: [Int]) throws -> [GenreCache] {
+  private func fetchGenres(ids: [String]) throws -> [GenreCache] {
     let targetIDs = Array(Set(ids))
     guard !targetIDs.isEmpty else { return [] }
     return try modelContext.fetch(
@@ -340,7 +340,7 @@ actor CacheStore {
     )
   }
 
-  private func fetchCurrencies(ids: [Int]) throws -> [CurrencyCache] {
+  private func fetchCurrencies(ids: [String]) throws -> [CurrencyCache] {
     let targetIDs = Array(Set(ids))
     guard !targetIDs.isEmpty else { return [] }
     return try modelContext.fetch(
@@ -348,7 +348,7 @@ actor CacheStore {
     )
   }
 
-  private func fetchPrices(ids: [Int]) throws -> [BookPriceCache] {
+  private func fetchPrices(ids: [String]) throws -> [BookPriceCache] {
     let targetIDs = Array(Set(ids))
     guard !targetIDs.isEmpty else { return [] }
     return try modelContext.fetch(
@@ -356,7 +356,7 @@ actor CacheStore {
     )
   }
 
-  private func fetchBook(id: Int) throws -> BookCache? {
+  private func fetchBook(id: String) throws -> BookCache? {
     let targetId = id
     var descriptor = FetchDescriptor<BookCache>(
       predicate: #Predicate { $0.id == targetId }
@@ -365,7 +365,7 @@ actor CacheStore {
     return try modelContext.fetch(descriptor).first
   }
 
-  private func fetchOrder(id: Int) throws -> OrderCache? {
+  private func fetchOrder(id: String) throws -> OrderCache? {
     let targetId = id
     var descriptor = FetchDescriptor<OrderCache>(
       predicate: #Predicate { $0.id == targetId }
@@ -374,7 +374,7 @@ actor CacheStore {
     return try modelContext.fetch(descriptor).first
   }
 
-  private func fetchCustomer(id: Int) throws -> CustomerCache? {
+  private func fetchCustomer(id: String) throws -> CustomerCache? {
     let targetId = id
     var descriptor = FetchDescriptor<CustomerCache>(
       predicate: #Predicate { $0.id == targetId }
@@ -383,7 +383,7 @@ actor CacheStore {
     return try modelContext.fetch(descriptor).first
   }
 
-  private func fetchCurrency(id: Int) throws -> CurrencyCache? {
+  private func fetchCurrency(id: String) throws -> CurrencyCache? {
     let targetId = id
     var descriptor = FetchDescriptor<CurrencyCache>(
       predicate: #Predicate { $0.id == targetId }
@@ -392,7 +392,7 @@ actor CacheStore {
     return try modelContext.fetch(descriptor).first
   }
 
-  private func fetchOrderItem(id: Int) throws -> OrderItemCache? {
+  private func fetchOrderItem(id: String) throws -> OrderItemCache? {
     let targetId = id
     var descriptor = FetchDescriptor<OrderItemCache>(
       predicate: #Predicate { $0.id == targetId }

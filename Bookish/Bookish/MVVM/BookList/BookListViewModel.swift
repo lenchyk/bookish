@@ -103,7 +103,7 @@ final class BooksListViewModel {
     }
   }
 
-  func deleteBook(id: Int) async {
+  func deleteBook(id: Book.ID) async {
     do {
       try await service.deleteBook(id: id)
       books.removeAll { $0.id == id }
@@ -113,7 +113,7 @@ final class BooksListViewModel {
     }
   }
 
-  func removeBook(id: Int) {
+  func removeBook(id: Book.ID) {
     books.removeAll { $0.id == id }
   }
 }

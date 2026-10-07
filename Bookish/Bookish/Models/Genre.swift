@@ -8,16 +8,18 @@
 import Foundation
 
 struct Genre: Codable, Identifiable, Equatable, Hashable {
-  let id: Int
+  typealias ID = Identifier<Genre>
+
+  let id: ID
   let name: String
 
-  init(id: Int, name: String) {
+  init(id: ID, name: String) {
     self.id = id
     self.name = name
   }
 
   init(cache: GenreCache) {
-    id = cache.id
+    id = ID(id: cache.id)
     name = cache.name
   }
 }

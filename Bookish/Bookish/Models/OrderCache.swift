@@ -10,14 +10,14 @@ import SwiftData
 
 @Model
 final class CustomerCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var fullname: String
   var email: String?
   var address: String?
   var currency: CurrencyCache
 
   init(
-    id: Int,
+    id: String,
     fullname: String,
     email: String?,
     address: String?,
@@ -40,7 +40,7 @@ final class CustomerCache {
 
 @Model
 final class OrderCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var orderDescription: String
   var totalPrice: Decimal
   var createdAt: Date
@@ -52,7 +52,7 @@ final class OrderCache {
   var items: [OrderItemCache]
 
   init(
-    id: Int,
+    id: String,
     orderDescription: String,
     totalPrice: Decimal,
     createdAt: Date,
@@ -87,16 +87,16 @@ final class OrderCache {
 
 @Model
 final class OrderItemCache {
-  @Attribute(.unique) var id: Int
-  var bookId: Int
+  @Attribute(.unique) var id: String
+  var bookId: String
   var amount: Int
   var unitPrice: Decimal
   var book: BookCache
   var order: OrderCache?
 
   init(
-    id: Int,
-    bookId: Int,
+    id: String,
+    bookId: String,
     amount: Int,
     unitPrice: Decimal,
     book: BookCache,
@@ -111,7 +111,7 @@ final class OrderItemCache {
   }
 
   func update(from item: OrderItem, book: BookCache) {
-    bookId = item.bookId
+    bookId = item.bookId.id
     amount = item.amount
     unitPrice = item.unitPrice
     self.book = book

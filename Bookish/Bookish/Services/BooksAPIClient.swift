@@ -9,15 +9,15 @@ import Foundation
 
 protocol BooksAPIProtocol {
   func getBooks(page: Int, limit: Int) async throws -> BooksResponse
-  func getBook(by id: Int) async throws -> Book
-  func updateBook(id: Int, update: BookUpdate) async throws
+  func getBook(by id: Book.ID) async throws -> Book
+  func updateBook(id: Book.ID, update: BookUpdate) async throws
   func search(query: String) async throws -> [Book]
-  func deleteBook(id: Int) async throws
+  func deleteBook(id: Book.ID) async throws
 }
 
 protocol OrdersAPIProtocol {
   func getOrders(page: Int, limit: Int) async throws -> OrdersResponse
-  func getOrder(by id: Int) async throws -> Order
+  func getOrder(by id: Order.ID) async throws -> Order
 }
 
 protocol CustomersAPIProtocol {
@@ -48,12 +48,12 @@ final class APIClient: APIClientProtocol {
     )
   }
 
-  func getBook(by id: Int) async throws -> Book {
-    try await get(path: "/books/\(id)")
+  func getBook(by id: Book.ID) async throws -> Book {
+    try await get(path: "/books/\(id.id)")
   }
 
-  func updateBook(id: Int, update: BookUpdate) async throws {
-    let url = try makeURL(path: "/books/\(id)")
+  func updateBook(id: Book.ID, update: BookUpdate) async throws {
+    let url = try makeURL(path: "/books/\(id.id)")
     var request = URLRequest(url: url)
     request.httpMethod = "PUT"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -70,8 +70,8 @@ final class APIClient: APIClientProtocol {
     )
   }
 
-  func deleteBook(id: Int) async throws {
-    let url = try makeURL(path: "/books/\(id)")
+  func deleteBook(id: Book.ID) async throws {
+    let url = try makeURL(path: "/books/\(id.id)")
     var request = URLRequest(url: url)
     request.httpMethod = "DELETE"
     _ = try await send(request)
@@ -91,8 +91,8 @@ final class APIClient: APIClientProtocol {
     )
   }
 
-  func getOrder(by id: Int) async throws -> Order {
-    try await get(path: "/orders/\(id)")
+  func getOrder(by id: Order.ID) async throws -> Order {
+    try await get(path: "/orders/\(id.id)")
   }
 
   private func get<T: Decodable>(

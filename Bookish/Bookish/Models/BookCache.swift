@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class BookCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var title: String
   var amount: Int
   var publishedYear: Int
@@ -28,7 +28,7 @@ final class BookCache {
   var prices: [BookPriceCache]
 
   init(
-    id: Int,
+    id: String,
     title: String,
     amount: Int,
     publishedYear: Int,
@@ -53,7 +53,7 @@ final class BookCache {
 
   convenience init(book: Book) {
     self.init(
-      id: book.id,
+      id: book.id.id,
       title: book.title,
       amount: book.amount,
       publishedYear: book.publishedYear,
@@ -75,11 +75,11 @@ final class BookCache {
 
 @Model
 final class AuthorCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var name: String
   var books: [BookCache]
 
-  init(id: Int, name: String, books: [BookCache] = []) {
+  init(id: String, name: String, books: [BookCache] = []) {
     self.id = id
     self.name = name
     self.books = books
@@ -92,11 +92,11 @@ final class AuthorCache {
 
 @Model
 final class GenreCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var name: String
   var books: [BookCache]
 
-  init(id: Int, name: String, books: [BookCache] = []) {
+  init(id: String, name: String, books: [BookCache] = []) {
     self.id = id
     self.name = name
     self.books = books
@@ -109,13 +109,13 @@ final class GenreCache {
 
 @Model
 final class CurrencyCache {
-  @Attribute(.unique) var id: Int
+  @Attribute(.unique) var id: String
   var name: String
   var symbol: String
   var code: String
 
   init(
-    id: Int,
+    id: String,
     name: String,
     symbol: String,
     code: String
@@ -135,16 +135,16 @@ final class CurrencyCache {
 
 @Model
 final class BookPriceCache {
-  @Attribute(.unique) var id: Int
-  var bookId: Int
+  @Attribute(.unique) var id: String
+  var bookId: String
   var price: Decimal
   var createdAt: Date?
   var currency: CurrencyCache
   var book: BookCache?
 
   init(
-    id: Int,
-    bookId: Int,
+    id: String,
+    bookId: String,
     price: Decimal,
     createdAt: Date? = nil,
     currency: CurrencyCache,
@@ -159,7 +159,7 @@ final class BookPriceCache {
   }
 
   func update(from price: BookPrice, currency: CurrencyCache) {
-    bookId = price.bookId
+    bookId = price.bookId.id
     self.price = price.price
     createdAt = price.createdAt
     self.currency = currency

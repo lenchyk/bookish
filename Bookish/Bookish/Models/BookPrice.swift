@@ -8,15 +8,17 @@
 import Foundation
 
 struct BookPrice: Codable, Identifiable, Equatable, Hashable {
-  let id: Int
-  let bookId: Int
+  typealias ID = Identifier<BookPrice>
+
+  let id: ID
+  let bookId: Book.ID
   let price: Decimal
   let currency: Currency
   let createdAt: Date?
 
   init(
-    id: Int,
-    bookId: Int,
+    id: ID,
+    bookId: Book.ID,
     price: Decimal,
     currency: Currency,
     createdAt: Date? = nil
@@ -30,16 +32,16 @@ struct BookPrice: Codable, Identifiable, Equatable, Hashable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(Int.self, forKey: .id)
-    bookId = try container.decode(Int.self, forKey: .bookId)
+    id = try container.decode(ID.self, forKey: .id)
+    bookId = try container.decode(Book.ID.self, forKey: .bookId)
     price = try container.decodeFlexibleDecimal(forKey: .price)
     currency = try container.decode(Currency.self, forKey: .currency)
     createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
   }
 
   init(cache: BookPriceCache) {
-    id = cache.id
-    bookId = cache.bookId
+    id = ID(id: cache.id)
+    bookId = Book.ID(id: cache.bookId)
     price = cache.price
     currency = Currency(cache: cache.currency)
     createdAt = cache.createdAt
