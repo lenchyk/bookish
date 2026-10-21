@@ -20,9 +20,9 @@ final class MockBooksAPIClient: APIClientProtocol {
   var searchResults: [Book] = []
   var errorToThrow: Error?
   var searchError: Error?
-  var deletedIDs: [Int] = []
+  var deletedIDs: [Book.ID] = []
 
-  func getBook(by id: Int) async throws -> Book {
+  func getBook(by id: Book.ID) async throws -> Book {
     if let errorToThrow { throw errorToThrow }
     guard let bookToReturn else {
       throw APIError.httpStatus(404)
@@ -38,7 +38,7 @@ final class MockBooksAPIClient: APIClientProtocol {
     return booksResponseToReturn
   }
 
-  func updateBook(id: Int, update: BookUpdate) async throws {
+  func updateBook(id: Book.ID, update: BookUpdate) async throws {
     if let errorToThrow { throw errorToThrow }
   }
 
@@ -48,7 +48,7 @@ final class MockBooksAPIClient: APIClientProtocol {
     return searchResults
   }
 
-  func deleteBook(id: Int) async throws {
+  func deleteBook(id: Book.ID) async throws {
     if let errorToThrow { throw errorToThrow }
     deletedIDs.append(id)
   }
@@ -66,7 +66,7 @@ final class MockBooksAPIClient: APIClientProtocol {
     return ordersResponseToReturn
   }
 
-  func getOrder(by id: Int) async throws -> Order {
+  func getOrder(by id: Order.ID) async throws -> Order {
     if let errorToThrow { throw errorToThrow }
     guard let orderToReturn else {
       throw APIError.httpStatus(404)
@@ -81,7 +81,7 @@ struct BookishApplicationServiceTests {
   func `getBook stores a book in cache`() async throws {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
-    let expected = sampleBook(id: 1, title: "Swift", price: 25)
+    let expected = sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 25)
     api.bookToReturn = expected
 
     let sut = BooksApplicationService(
@@ -89,9 +89,9 @@ struct BookishApplicationServiceTests {
       cache: CacheStore(modelContainer: container)
     )
 
-    _ = try await sut.getBook(by: 1)
+    _ = try await sut.getBook(by: Book.ID(id: "1"))
 
-    let cached = try await sut.getCachedBook(id: 1)
+    let cached = try await sut.getCachedBook(id: Book.ID(id: "1"))
 
     #expect(cached?.id == expected.id)
     #expect(cached?.title == expected.title)
@@ -107,8 +107,8 @@ struct BookishApplicationServiceTests {
     let api = MockBooksAPIClient()
 
     let books = [
-      sampleBook(id: 1, title: "Swift", price: 20),
-      sampleBook(id: 2, title: "Clean Code", price: 30, authorName: "Robert Martin")
+      sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 20),
+      sampleBook(id: Book.ID(id: "2"), title: "Clean Code", price: 30, authorName: "Robert Martin")
     ]
 
     api.booksResponseToReturn = BooksResponse(
@@ -129,7 +129,7 @@ struct BookishApplicationServiceTests {
     let cachedBooks = try await sut.getCachedBooks(page: 1)
 
     #expect(cachedBooks.items.count == 2)
-    #expect(cachedBooks.items.map(\.id).sorted() == [1, 2])
+    #expect(Set(cachedBooks.items.map(\.id)) == [Book.ID(id: "1"), Book.ID(id: "2")] as Set)
     #expect(cachedBooks.hasMore == false)
   }
 
@@ -142,13 +142,13 @@ struct BookishApplicationServiceTests {
       cache: CacheStore(modelContainer: container)
     )
 
-    api.bookToReturn = sampleBook(id: 1, title: "Old title", price: 20)
-    _ = try await sut.getBook(by: 1)
+    api.bookToReturn = sampleBook(id: Book.ID(id: "1"), title: "Old title", price: 20)
+    _ = try await sut.getBook(by: Book.ID(id: "1"))
 
-    api.bookToReturn = sampleBook(id: 1, title: "New title", price: 50)
-    _ = try await sut.getBook(by: 1)
+    api.bookToReturn = sampleBook(id: Book.ID(id: "1"), title: "New title", price: 50)
+    _ = try await sut.getBook(by: Book.ID(id: "1"))
 
-    let cached = try await sut.getCachedBook(id: 1)
+    let cached = try await sut.getCachedBook(id: Book.ID(id: "1"))
 
     #expect(cached?.title == "New title")
     #expect(cached?.prices.first?.price == Decimal(50))
@@ -167,7 +167,7 @@ struct BookishApplicationServiceTests {
     )
 
     api.booksResponseToReturn = BooksResponse(
-      data: [sampleBook(id: 1, title: "Swift", price: 20)],
+      data: [sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 20)],
       page: 1,
       limit: 50,
       total: 1,
@@ -192,7 +192,7 @@ struct BookishApplicationServiceTests {
     )
 
     api.booksResponseToReturn = BooksResponse(
-      data: [sampleBook(id: 1, title: "Swift Programming", price: 20)],
+      data: [sampleBook(id: Book.ID(id: "1"), title: "Swift Programming", price: 20)],
       page: 1,
       limit: 50,
       total: 1,
@@ -200,37 +200,37 @@ struct BookishApplicationServiceTests {
     )
     _ = try await sut.getBooks(page: 1)
 
-    api.searchResults = [sampleBook(id: 99, title: "Transient Search Hit", price: 9)]
+    api.searchResults = [sampleBook(id: Book.ID(id: "99"), title: "Transient Search Hit", price: 9)]
     let live = try await sut.search(query: "Transient")
-    #expect(live.first?.id == 99)
-    #expect(try await sut.getCachedBook(id: 99) == nil)
+    #expect(live.first?.id == Book.ID(id: "99"))
+    #expect(try await sut.getCachedBook(id: Book.ID(id: "99")) == nil)
 
     api.searchError = APIError.httpStatus(500)
     let cached = try await sut.search(query: "Swift")
-    #expect(cached.map(\.id) == [1])
+    #expect(cached.map(\.id) == [Book.ID(id: "1")])
   }
 
   @Test
   func `deleteBook removes the row from cache and the list ViewModel`() async throws {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
-    let book = sampleBook(id: 1, title: "Swift", price: 20)
+    let book = sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 20)
     api.bookToReturn = book
 
     let sut = BooksApplicationService(
       apiClient: api,
       cache: CacheStore(modelContainer: container)
     )
-    _ = try await sut.getBook(by: 1)
+    _ = try await sut.getBook(by: Book.ID(id: "1"))
 
     let viewModel = BooksListViewModel(service: sut)
     viewModel.books = [book]
 
-    try await sut.deleteBook(id: 1)
-    viewModel.removeBook(id: 1)
+    try await sut.deleteBook(id: Book.ID(id: "1"))
+    viewModel.removeBook(id: Book.ID(id: "1"))
 
-    #expect(api.deletedIDs == [1])
-    #expect(try await sut.getCachedBook(id: 1) == nil)
+    #expect(api.deletedIDs == [Book.ID(id: "1")])
+    #expect(try await sut.getCachedBook(id: Book.ID(id: "1")) == nil)
     #expect(viewModel.books.isEmpty)
   }
 
@@ -238,9 +238,9 @@ struct BookishApplicationServiceTests {
   func `saving a book updates the matching list row without reloading`() async throws {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
-    let original = sampleBook(id: 1, title: "Swift", price: 20)
-    let other = sampleBook(id: 2, title: "Clean Code", price: 30, authorName: "Robert Martin")
-    api.bookToReturn = sampleBook(id: 1, title: "Updated Swift", price: 20)
+    let original = sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 20)
+    let other = sampleBook(id: Book.ID(id: "2"), title: "Clean Code", price: 30, authorName: "Robert Martin")
+    api.bookToReturn = sampleBook(id: Book.ID(id: "1"), title: "Updated Swift", price: 20)
 
     let sut = BooksApplicationService(
       apiClient: api,
@@ -250,7 +250,7 @@ struct BookishApplicationServiceTests {
     listViewModel.books = [original, other]
 
     let details = BookDetailsViewModel(
-      bookId: 1,
+      bookId: Book.ID(id: "1"),
       service: sut,
       onBookChanged: { listViewModel.replaceBook($0) }
     )
@@ -420,21 +420,21 @@ struct BookishApplicationServiceTests {
 
   @Test
   func `primary price uses the first amount`() {
-    let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
+    let usd = Currency(id: Currency.ID(id: "1"), name: "US Dollar", symbol: "$", code: "USD")
     let first = BookPrice(
-      id: 1,
-      bookId: 1,
+      id: BookPrice.ID(id: "1"),
+      bookId: Book.ID(id: "1"),
       price: Decimal(10),
       currency: usd
     )
     let second = BookPrice(
-      id: 2,
-      bookId: 1,
+      id: BookPrice.ID(id: "2"),
+      bookId: Book.ID(id: "1"),
       price: Decimal(40),
       currency: usd
     )
     let book = Book(
-      id: 1,
+      id: Book.ID(id: "1"),
       title: "Swift",
       amount: 1,
       publishedYear: 2024,
@@ -443,7 +443,7 @@ struct BookishApplicationServiceTests {
       description: "Sample",
       prices: [first, second]
     )
-    #expect(book.primaryPrice?.id == 1)
+    #expect(book.primaryPrice?.id == BookPrice.ID(id: "1"))
     #expect(book.primaryPrice?.price == Decimal(10))
   }
 
@@ -625,11 +625,11 @@ struct BookishApplicationServiceTests {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
 
-    let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
+    let usd = Currency(id: Currency.ID(id: "1"), name: "US Dollar", symbol: "$", code: "USD")
     let detailed = Order(
-      id: 7,
+      id: Order.ID(id: "7"),
       customer: Customer(
-        id: 2,
+        id: Customer.ID(id: "2"),
         fullname: "Ada Lovelace",
         email: "ada@example.com",
         address: "London",
@@ -642,16 +642,16 @@ struct BookishApplicationServiceTests {
       status: .paid,
       items: [
         OrderItem(
-          id: 15,
-          bookId: 1,
-          book: sampleBook(id: 1, title: "Swift", price: 20),
+          id: OrderItem.ID(id: "15"),
+          bookId: Book.ID(id: "1"),
+          book: sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 20),
           amount: 2,
           unitPrice: Decimal(20)
         )
       ]
     )
     let summary = Order(
-      id: 7,
+      id: Order.ID(id: "7"),
       customer: detailed.customer,
       currency: usd,
       description: "Gift order",
@@ -675,14 +675,14 @@ struct BookishApplicationServiceTests {
       cache: CacheStore(modelContainer: container)
     )
 
-    _ = try await sut.getOrder(by: 7)
+    _ = try await sut.getOrder(by: Order.ID(id: "7"))
 
     let orders = try await sut.getOrders()
     #expect(orders.count == 1)
     #expect(orders.first?.items.isEmpty == true)
 
     api.errorToThrow = APIError.httpStatus(500)
-    let cached = try await sut.getOrder(by: 7)
+    let cached = try await sut.getOrder(by: Order.ID(id: "7"))
     #expect(cached.customer.fullname == "Ada Lovelace")
     #expect(cached.items.count == 1)
     #expect(cached.items.first?.unitPrice == Decimal(20))
@@ -692,11 +692,11 @@ struct BookishApplicationServiceTests {
   func `getOrder returns the remote order without requiring a cache round trip`() async throws {
     let container = try makeContainer()
     let api = MockBooksAPIClient()
-    let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
+    let usd = Currency(id: Currency.ID(id: "1"), name: "US Dollar", symbol: "$", code: "USD")
     let order = Order(
-      id: 9,
+      id: Order.ID(id: "9"),
       customer: Customer(
-        id: 2,
+        id: Customer.ID(id: "2"),
         fullname: "Ada Lovelace",
         email: "ada@example.com",
         address: "London",
@@ -709,9 +709,9 @@ struct BookishApplicationServiceTests {
       status: .paid,
       items: [
         OrderItem(
-          id: 21,
-          bookId: 1,
-          book: sampleBook(id: 1, title: "Swift", price: 18),
+          id: OrderItem.ID(id: "21"),
+          bookId: Book.ID(id: "1"),
+          book: sampleBook(id: Book.ID(id: "1"), title: "Swift", price: 18),
           amount: 1,
           unitPrice: Decimal(18)
         )
@@ -725,8 +725,8 @@ struct BookishApplicationServiceTests {
       cache: CacheStore(modelContainer: container)
     )
 
-    let loaded = try await sut.getOrder(by: 9)
-    #expect(loaded.id == 9)
+    let loaded = try await sut.getOrder(by: Order.ID(id: "9"))
+    #expect(loaded.id == Order.ID(id: "9"))
     #expect(loaded.items.count == 1)
     #expect(loaded.formattedTotal.contains("18") || loaded.currency.code == "USD")
   }
@@ -745,12 +745,12 @@ func makeContainer() throws -> ModelContainer {
 }
 
 func sampleBook(
-  id: Int,
+  id: Book.ID,
   title: String,
   price: Decimal,
   authorName: String = "Apple"
 ) -> Book {
-  let usd = Currency(id: 1, name: "US Dollar", symbol: "$", code: "USD")
+  let usd = Currency(id: Currency.ID(id: "1"), name: "US Dollar", symbol: "$", code: "USD")
   return Book(
     id: id,
     title: title,
@@ -759,11 +759,11 @@ func sampleBook(
     pagesCount: 200,
     typeOfBinding: .paperback,
     description: "A sample book",
-    authors: [Author(id: 9, name: authorName)],
-    genres: [Genre(id: 3, name: "Programming")],
+    authors: [Author(id: Author.ID(id: "9"), name: authorName)],
+    genres: [Genre(id: Genre.ID(id: "3"), name: "Programming")],
     prices: [
       BookPrice(
-        id: id * 10,
+        id: BookPrice.ID(id: "\(id.id)0"),
         bookId: id,
         price: price,
         currency: usd

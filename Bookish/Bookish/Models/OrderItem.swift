@@ -8,15 +8,17 @@
 import Foundation
 
 struct OrderItem: Codable, Identifiable, Equatable {
-  let id: Int
-  let bookId: Int
+  typealias ID = Identifier<OrderItem>
+
+  let id: ID
+  let bookId: Book.ID
   let book: Book
   let amount: Int
   let unitPrice: Decimal
 
   init(
-    id: Int,
-    bookId: Int,
+    id: ID,
+    bookId: Book.ID,
     book: Book,
     amount: Int,
     unitPrice: Decimal
@@ -30,16 +32,16 @@ struct OrderItem: Codable, Identifiable, Equatable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(Int.self, forKey: .id)
+    id = try container.decode(ID.self, forKey: .id)
     book = try container.decode(Book.self, forKey: .book)
-    bookId = try container.decodeIfPresent(Int.self, forKey: .bookId) ?? book.id
+    bookId = try container.decodeIfPresent(Book.ID.self, forKey: .bookId) ?? book.id
     amount = try container.decode(Int.self, forKey: .amount)
     unitPrice = try container.decodeFlexibleDecimal(forKey: .unitPrice)
   }
 
   init(cache: OrderItemCache) {
-    id = cache.id
-    bookId = cache.bookId
+    id = ID(id: cache.id)
+    bookId = Book.ID(id: cache.bookId)
     book = Book(cache: cache.book)
     amount = cache.amount
     unitPrice = cache.unitPrice

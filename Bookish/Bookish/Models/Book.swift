@@ -8,7 +8,9 @@
 import Foundation
 
 struct Book: Codable, Identifiable, Equatable {
-  let id: Int
+  typealias ID = Identifier<Book>
+
+  let id: ID
   let title: String
   let amount: Int
   let publishedYear: Int
@@ -20,7 +22,7 @@ struct Book: Codable, Identifiable, Equatable {
   let prices: [BookPrice]
 
   init(
-    id: Int,
+    id: ID,
     title: String,
     amount: Int,
     publishedYear: Int,
@@ -44,7 +46,7 @@ struct Book: Codable, Identifiable, Equatable {
   }
 
   init(cache: BookCache) {
-    id = cache.id
+    id = ID(id: cache.id)
     title = cache.title
     amount = cache.amount
     publishedYear = cache.publishedYear

@@ -11,10 +11,10 @@ import Observation
 @Observable
 @MainActor
 final class BookDetailsViewModel {
-  let bookId: Int
+  let bookId: Book.ID
   private let service: BooksApplicationService
   private let onBookChanged: ((Book) -> Void)?
-  private let onBookDeleted: ((Int) -> Void)?
+  private let onBookDeleted: ((Book.ID) -> Void)?
 
   var book: Book?
   var loadingState: LoadingState = .idle
@@ -28,10 +28,10 @@ final class BookDetailsViewModel {
   var descriptionText = ""
 
   init(
-    bookId: Int,
+    bookId: Book.ID,
     service: BooksApplicationService,
     onBookChanged: ((Book) -> Void)? = nil,
-    onBookDeleted: ((Int) -> Void)? = nil
+    onBookDeleted: ((Book.ID) -> Void)? = nil
   ) {
     self.bookId = bookId
     self.service = service

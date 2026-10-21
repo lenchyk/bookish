@@ -11,13 +11,13 @@ import Observation
 @Observable
 @MainActor
 final class OrderDetailsViewModel {
-  let orderId: Int
+  let orderId: Order.ID
   private let service: BooksApplicationService
 
   var order: Order?
   var loadingState: LoadingState = .idle
 
-  init(orderId: Int, service: BooksApplicationService, order: Order? = nil) {
+  init(orderId: Order.ID, service: BooksApplicationService, order: Order? = nil) {
     self.orderId = orderId
     self.service = service
     self.order = order

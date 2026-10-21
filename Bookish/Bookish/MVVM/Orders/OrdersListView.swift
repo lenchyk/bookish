@@ -44,7 +44,7 @@ struct OrdersListView: View {
             } label: {
               VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                  Text("Order #\(order.id)")
+                  Text("Order #\(order.id.id)")
                     .font(.headline)
                   Spacer()
                   Text(order.formattedTotal)

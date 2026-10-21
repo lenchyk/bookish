@@ -8,13 +8,15 @@
 import Foundation
 
 struct Currency: Codable, Identifiable, Equatable, Hashable {
-  let id: Int
+  typealias ID = Identifier<Currency>
+
+  let id: ID
   let name: String
   let symbol: String
   let code: String
 
   init(
-    id: Int,
+    id: ID,
     name: String,
     symbol: String,
     code: String
@@ -26,7 +28,7 @@ struct Currency: Codable, Identifiable, Equatable, Hashable {
   }
 
   init(cache: CurrencyCache) {
-    id = cache.id
+    id = ID(id: cache.id)
     name = cache.name
     symbol = cache.symbol
     code = cache.code

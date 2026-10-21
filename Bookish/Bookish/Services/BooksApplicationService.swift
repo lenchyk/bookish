@@ -43,7 +43,7 @@ final class BooksApplicationService {
     }
   }
 
-  func getBook(by id: Int) async throws -> Book {
+  func getBook(by id: Book.ID) async throws -> Book {
     do {
       let remoteBook = try await apiClient.getBook(by: id)
       try await cache.upsertBooks([remoteBook])
@@ -58,7 +58,7 @@ final class BooksApplicationService {
     }
   }
 
-  func updateBook(id: Int, update: BookUpdate) async throws {
+  func updateBook(id: Book.ID, update: BookUpdate) async throws {
     try await apiClient.updateBook(id: id, update: update)
 
     if let cached = try await cache.book(id: id) {
@@ -92,12 +92,12 @@ final class BooksApplicationService {
     }
   }
 
-  func deleteBook(id: Int) async throws {
+  func deleteBook(id: Book.ID) async throws {
     try await apiClient.deleteBook(id: id)
     try await cache.deleteBook(id: id)
   }
 
-  func getCachedBook(id: Int) async throws -> Book? {
+  func getCachedBook(id: Book.ID) async throws -> Book? {
     try await cache.book(id: id)
   }
 
@@ -139,7 +139,7 @@ final class BooksApplicationService {
     }
   }
 
-  func getOrder(by id: Int) async throws -> Order {
+  func getOrder(by id: Order.ID) async throws -> Order {
     do {
       let order = try await apiClient.getOrder(by: id)
       try? await cache.upsertOrder(order)

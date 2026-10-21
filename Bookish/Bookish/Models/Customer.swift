@@ -8,14 +8,16 @@
 import Foundation
 
 struct Customer: Codable, Identifiable, Equatable {
-  let id: Int
+  typealias ID = Identifier<Customer>
+
+  let id: ID
   let fullname: String
   let email: String?
   let address: String?
   let currency: Currency
 
   init(
-    id: Int,
+    id: ID,
     fullname: String,
     email: String?,
     address: String?,
@@ -29,7 +31,7 @@ struct Customer: Codable, Identifiable, Equatable {
   }
 
   init(cache: CustomerCache) {
-    id = cache.id
+    id = ID(id: cache.id)
     fullname = cache.fullname
     email = cache.email
     address = cache.address
@@ -37,6 +39,6 @@ struct Customer: Codable, Identifiable, Equatable {
   }
 
   var displayName: String {
-    fullname.isEmpty ? "Customer #\(id)" : fullname
+    fullname.isEmpty ? "Customer #\(id.id)" : fullname
   }
 }

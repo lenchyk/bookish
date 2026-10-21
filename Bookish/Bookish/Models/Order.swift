@@ -8,7 +8,9 @@
 import Foundation
 
 struct Order: Codable, Identifiable, Equatable {
-  let id: Int
+  typealias ID = Identifier<Order>
+
+  let id: ID
   let customer: Customer
   let currency: Currency
   let description: String
@@ -18,7 +20,7 @@ struct Order: Codable, Identifiable, Equatable {
   let items: [OrderItem]
 
   init(
-    id: Int,
+    id: ID,
     customer: Customer,
     currency: Currency,
     description: String,
@@ -39,7 +41,7 @@ struct Order: Codable, Identifiable, Equatable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(Int.self, forKey: .id)
+    id = try container.decode(ID.self, forKey: .id)
     customer = try container.decode(Customer.self, forKey: .customer)
     currency = try container.decode(Currency.self, forKey: .currency)
     description = try container.decode(String.self, forKey: .description)
@@ -50,7 +52,7 @@ struct Order: Codable, Identifiable, Equatable {
   }
 
   init(cache: OrderCache) {
-    id = cache.id
+    id = ID(id: cache.id)
     customer = Customer(cache: cache.customer)
     currency = Currency(cache: cache.currency)
     description = cache.orderDescription
